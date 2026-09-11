@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {nextPlayback} from '../lib/playback.ts';
+import {passagesFromItems} from '../lib/passages.ts';
+for(const scope of ['selection','page','document'])assert.equal(nextPlayback(scope,0,2,1,21),'passage');
+assert.equal(nextPlayback('selection',1,2,1,21),'stop');
+assert.equal(nextPlayback('page',1,2,1,21),'stop');
+assert.equal(nextPlayback('document',1,2,1,21),'page');
+assert.equal(nextPlayback('document',1,2,21,21),'stop');
+const fragments=['Only the selected','part of this sentence.'];
+const parts=passagesFromItems(fragments.map(str=>({str,transform:[],width:0,height:0})));
+assert.equal(parts.map(p=>p.text).join(' '),fragments.join(' '));
+console.log('PASS: selected text only, page boundary, document continuation and final stop.');

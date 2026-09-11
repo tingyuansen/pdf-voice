@@ -1,0 +1,29 @@
+appId: local.paper-voice.reader
+productName: Paper Voice
+directories:
+  app: work/desktop-package
+  output: work/mac-release
+  buildResources: desktop/resources
+files:
+  - desktop/**
+  - desktop-dist/**
+  - package.json
+  - "!node_modules/**"
+asar: true
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: arm64
+  identity: "-"
+artifactName: Paper-Voice-${version}-${arch}.${ext}
+dmg:
+  title: Paper Voice
+  contents:
+    - x: 150
+      y: 160
+      type: file
+    - x: 450
+      y: 160
+      type: link
+      path: /Applications

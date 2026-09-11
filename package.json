@@ -1,0 +1,57 @@
+{
+  "name": "paper-voice",
+  "version": "1.4.0",
+  "private": true,
+  "description": "Read and listen to PDF papers: a reflowed reading view with equations and figures as typeset, continuous PDF pages, and OpenAI text-to-speech with highlighted passages.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tingyuansen/pdf-voice.git"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "install:ci": "node scripts/install-ci.mjs",
+    "dev": "vinext dev --port 5173 --hostname 127.0.0.1",
+    "build": "vinext build",
+    "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
+    "lint": "eslint app lib desktop tests scripts",
+    "predev": "node scripts/pdfjs-assets.mjs && node scripts/local-key.mjs",
+    "desktop:build": "node scripts/pdfjs-assets.mjs && vite build --config desktop/vite.config.mjs && node desktop/prepare.mjs",
+    "desktop:dev": "npm run desktop:build && electron desktop/main.cjs",
+    "desktop:package": "npm run desktop:build && electron-builder --config desktop/electron-builder.yml --mac --arm64 --publish never",
+    "test": "node --import ./tests/register-ts.mjs tests/verify-phrases.mjs && node --import ./tests/register-ts.mjs tests/verify-decimals.mjs && node --import ./tests/register-ts.mjs tests/verify-equations.mjs && node --import ./tests/register-ts.mjs tests/verify-reflow.mjs && node --import ./tests/register-ts.mjs tests/verify-pdf.mjs && node --import ./tests/register-ts.mjs tests/verify-buffer.mjs && node --import ./tests/register-ts.mjs tests/verify-playback.mjs && node --import ./tests/register-ts.mjs tests/verify-reader.mjs",
+    "test:desktop": "node tests/verify-desktop.cjs",
+    "postinstall": "node scripts/pdfjs-assets.mjs",
+    "prebuild": "node scripts/pdfjs-assets.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "^1.31.0",
+    "next": "16.2.6",
+    "pdfjs-dist": "^6.3.289",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/workers-types": "4.20260515.1",
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "react-server-dom-webpack": "19.2.6",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3",
+    "vinext": "1.0.0-beta.5",
+    "vite": "8.0.13",
+    "wrangler": "4.92.0"
+  },
+  "type": "module"
+}

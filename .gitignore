@@ -1,0 +1,36 @@
+# dependencies
+/node_modules
+
+# build output
+/dist/
+/desktop-dist/
+/out/
+/.next/
+/.vinext/
+/.wrangler/
+/.sites-runtime/
+tsconfig.tsbuildinfo
+
+# packaging output, logs and scratch (see README)
+/work/
+*.dmg
+*.blockmap
+
+# secrets and local configuration
+.env*
+.dev.vars*
+
+# the example paper is not redistributed
+/public/examples/
+
+# editor and OS
+.DS_Store
+.vscode/
+.idea/
+.claude/
+
+# generated
+next-env.d.ts
+/public/pdf.worker.min.mjs
+/public/cmaps/
+/public/standard_fonts/
