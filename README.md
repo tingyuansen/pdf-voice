@@ -1,6 +1,6 @@
 # Paper Voice
 
-Read and listen to PDF papers. Paper Voice opens a PDF locally, reads it aloud with OpenAI text-to-speech while highlighting the passage being spoken, and offers a reflowed **Reading view** — a single scrolling column in which display equations, figures and tables appear exactly as typeset in the paper rather than as the scrambled text of their text layer.
+Read and listen to PDF papers. Paper Voice opens a PDF locally, reads it aloud with Cartesia Sonic 3.6 or OpenAI text-to-speech while highlighting the passage being spoken, and offers a reflowed **Reading view** — a single scrolling column in which display equations, figures and tables appear exactly as typeset in the paper rather than as the scrambled text of their text layer.
 
 It runs as a macOS desktop app (Electron, Apple Silicon) and as a web app served by a Cloudflare worker. Both use the same React reader.
 
@@ -10,9 +10,9 @@ It runs as a macOS desktop app (Electron, Apple Silicon) and as a web app served
 
 - **Two views of the same document.** *PDF view* shows the pages as printed, scrolling continuously, with fit-width and 50–300 % zoom and sharp rendering at the display's pixel ratio. *Reading view* reflows the text into one comfortable column (18–40 px) that runs across page boundaries.
 - **Equations, figures and tables as set in the paper.** Reading view detects display equations from their labels and geometry, and figures and tables from their captions, then rasterises those regions from the PDF page and shows them inline at the reading size. Inline sub- and superscripts are rendered as such. Running heads, page numbers and draft line numbers are recognised and dropped.
-- **Listen.** OpenAI `gpt-4o-mini-tts` with 13 voices and 0.75–2× speed. Read a selection, the current page, or the whole document; playback buffers ahead, continues across pages, and the passage being read is highlighted in either view. Equations are announced by number rather than read symbol by symbol; figures are skipped and their captions read.
+- **Listen.** Two speech engines, switchable in the sidebar: Cartesia `sonic-3.6` (14 voices, the more natural reader) and OpenAI `gpt-4o-mini-tts` (13 voices, roughly a quarter of the price per character). Playback speed 0.75–2×. Read a selection, the current page, or the whole document; playback buffers ahead, continues across pages, and the passage being read is highlighted in either view. Equations are announced by number rather than read symbol by symbol; figures are skipped and their captions read.
 - **Clean mode** hides every control except a small floating play button. Dark mode inverts the page with hues preserved, so figures keep their colours.
-- **Private by construction.** The PDF never leaves the machine; only the passages you play are sent to OpenAI. The API key stays on the server side (the Cloudflare worker, or the app's loopback-only local server), never in the browser.
+- **Private by construction.** The PDF never leaves the machine; only the passages you play are sent to the selected speech engine. The API key stays on the server side (the Cloudflare worker, or the app's loopback-only local server), never in the browser.
 
 The layout analysis is geometric — column edges from clusters of long lines, the modal line end as the margin, glyph size and baseline offsets for scripts, caption anchors and vertical bands for floats — and is not tuned to any particular paper. It has been checked against two-column astronomy manuscripts (including a numbered draft with full-width captions), a Word-exported proposal with image-only figures, and prose-only documents, where nothing is detected.
 
@@ -25,7 +25,7 @@ npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:5173 and drop a PDF anywhere, or use **Open PDF**. `predev` copies `OPENAI` from `~/.env` into the git-ignored `.dev.vars` so the worker can call OpenAI; without a configured key the app offers a password field for a session-only key. `npm run build` produces the deployable worker in `dist/`.
+Open http://127.0.0.1:5173 and drop a PDF anywhere, or use **Open PDF**. `predev` copies `SONIC` (a Cartesia key) and `OPENAI` from `~/.env` into the git-ignored `.dev.vars`. An engine without a configured key offers a password field for a session-only key. `npm run build` produces the deployable worker in `dist/`.
 
 If `public/examples/manuscript.pdf` exists it is opened automatically as the example; the repository does not ship one.
 
@@ -37,7 +37,7 @@ npm run desktop:dev        # …and launch it in Electron
 npm run desktop:package    # …and build the DMG into work/mac-release/
 ```
 
-The app bundles Electron, the built reader, PDF.js worker, CMaps and standard fonts, and a small local HTTP server that serves the reader on a loopback port and proxies speech requests. It reads `OPENAI` from `~/.env` at request time and opens `~/manuscript.pdf` when present. The DMG is ad-hoc signed for local use; Developer ID signing and notarization are not configured.
+The app bundles Electron, the built reader, PDF.js worker, CMaps and standard fonts, and a small local HTTP server that serves the reader on a loopback port and proxies speech requests. It reads `SONIC` and `OPENAI` from `~/.env` at request time and opens `~/manuscript.pdf` when present. The DMG is ad-hoc signed for local use; Developer ID signing and notarization are not configured.
 
 ## Checks
 
@@ -67,4 +67,4 @@ How a page becomes Reading view: text items from PDF.js are grouped into lines b
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Speech is generated by the OpenAI API and billed to your account; see the [text-to-speech guide](https://developers.openai.com/api/docs/guides/text-to-speech).
+MIT — see [LICENSE](LICENSE). Speech is generated by the Cartesia or OpenAI API and billed to your account; see [Cartesia pricing](https://cartesia.ai/pricing) and [OpenAI pricing](https://developers.openai.com/api/docs/pricing).

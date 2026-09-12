@@ -15,7 +15,7 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   window.once('ready-to-show',()=>{if(!smoke)window.show();});
   window.on('closed',()=>{window=null;});
   await window.loadURL(origin);
-  if(smoke){const health=await fetch(origin+'/api/speech').then(r=>r.json());const asset=await fetch(origin+'/pdf.worker.min.mjs');fs.writeFileSync(path.join(app.getPath('userData'),'smoke-test.json'),JSON.stringify({loaded:true,configured:health.configured,workerStatus:asset.status,packaged:app.isPackaged}));app.quit();}
+  if(smoke){const health=await fetch(origin+'/api/speech').then(r=>r.json());const asset=await fetch(origin+'/pdf.worker.min.mjs');fs.writeFileSync(path.join(app.getPath('userData'),'smoke-test.json'),JSON.stringify({loaded:true,configured:Object.fromEntries((health.providers||[]).map(p=>[p.id,p.configured])),workerStatus:asset.status,packaged:app.isPackaged}));app.quit();}
  }
  app.whenReady().then(async()=>{
   const portFile=path.join(app.getPath('userData'),'local-port.json');let port=0;try{port=JSON.parse(fs.readFileSync(portFile,'utf8')).port;}catch{}

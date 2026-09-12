@@ -43,8 +43,10 @@ function passageNodes(passage:Passage,trimHyphen=false):ReactNode[]{
  if(at<text.length)nodes.push(...runs(text.slice(at),nodes.length));
  return nodes;
 }
+type SpeechEngine={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
+const fallbackEngine:SpeechEngine={id:'cartesia',name:'Cartesia',model:'sonic-3.6',configured:false,voices:[]};
 export default function Home(){
- const [doc,setDoc]=useState<PDFDocumentProxy|null>(null),[name,setName]=useState(''),[page,setPage]=useState(1),[data,setData]=useState<PageData|null>(null),[index,setIndex]=useState(0),[mode,setMode]=useState<'idle'|'loading'|'playing'|'paused'>('idle'),[error,setError]=useState(''),[loading,setLoading]=useState(false),[voice,setVoice]=useState('marin'),[key,setKey]=useState(''),[configured,setConfigured]=useState(false),[speed,setSpeed]=useState(1),[drag,setDrag]=useState(false);
+ const [doc,setDoc]=useState<PDFDocumentProxy|null>(null),[name,setName]=useState(''),[page,setPage]=useState(1),[data,setData]=useState<PageData|null>(null),[index,setIndex]=useState(0),[mode,setMode]=useState<'idle'|'loading'|'playing'|'paused'>('idle'),[error,setError]=useState(''),[loading,setLoading]=useState(false),[voice,setVoice]=useState(''),[keys,setKeys]=useState<Record<string,string>>({}),[engines,setEngines]=useState<SpeechEngine[]>([]),[engineId,setEngineId]=useState('cartesia'),[speed,setSpeed]=useState(1),[drag,setDrag]=useState(false);
  const [cleanMode,setCleanMode]=useState(false);
  const cleanButton=useRef<HTMLButtonElement>(null),exitCleanButton=useRef<HTMLButtonElement>(null);
  function enterClean(){setCleanMode(true);requestAnimationFrame(()=>exitCleanButton.current?.focus());}
@@ -92,7 +94,11 @@ export default function Home(){
    setName(typeof source==='string'?'manuscript.pdf':source.name);setPage(1);setIndex(0);pendingScroll.current=1;setPdfJump({page:1,token:Date.now()});setMaterialized(Math.min(next.numPages,READER_BATCH));setDoc(next);
   }catch(e){if(id===loadId.current)setError(e instanceof Error?e.message:'Could not open this PDF.');}finally{if(id===loadId.current)setLoading(false);}
  }
- useEffect(()=>{fetch('/api/speech').then(r=>r.json() as Promise<{configured:boolean}>).then(d=>setConfigured(d.configured)).catch(()=>{});void load('/examples/manuscript.pdf');return()=>{loadId.current++;epoch.current++;controller.current?.abort();audio.current?.pause();clearCache();void docRef.current?.loadingTask.destroy();};},[]);
+ useEffect(()=>{fetch('/api/speech').then(r=>r.json() as Promise<{providers:SpeechEngine[]}>).then(d=>{
+  let saved:{engine?:string;voice?:string}={};try{saved=JSON.parse(localStorage.getItem('paper-voice-speech')||'{}');}catch{}
+  const list=d.providers,chosen=list.find(e=>e.id===saved.engine)||list.find(e=>e.configured)||list[0];if(!chosen)return;
+  setEngines(list);setEngineId(chosen.id);setVoice(chosen.voices.some(v=>v.id===saved.voice)?saved.voice!:chosen.voices[0]?.id||'');
+ }).catch(()=>{});void load('/examples/manuscript.pdf');return()=>{loadId.current++;epoch.current++;controller.current?.abort();audio.current?.pause();clearCache();void docRef.current?.loadingTask.destroy();};},[]);
  useEffect(()=>{if(!doc)return;setData(pageData(page));setIndex(0);setMaterialized(m=>Math.max(m,Math.min(doc.numPages,page+5)));},[doc,page]);
  useEffect(()=>{if(data&&auto.current){auto.current=false;if(data.passages.length)void speak(0,data.passages,scopeRef.current,epoch.current);else if(doc&&page<doc.numPages){auto.current=true;setPage(page+1);}else setMode('idle');}},[data]);
  useEffect(()=>{(view==='reader'&&scope!=='selection'?readerActive.current:activeBox.current)?.scrollIntoView({block:'nearest',behavior:'smooth'});},[index,mode,view,scope]);
@@ -126,9 +132,13 @@ export default function Home(){
    for(const [n,section] of sections.current){if(!section)continue;const rect=section.getBoundingClientRect();if(rect.top<=probe&&rect.bottom>probe){if(n!==page)setPage(n);return;}}
   });
  }
+ const engine=engines.find(e=>e.id===engineId)||fallbackEngine;
+ function saveSpeech(next:{engine:string;voice:string}){try{localStorage.setItem('paper-voice-speech',JSON.stringify(next));}catch{}}
+ function chooseEngine(id:string){const target=engines.find(e=>e.id===id);if(!target)return;stop();auto.current=false;clearCache();const first=target.voices[0]?.id||'';setEngineId(id);setVoice(first);saveSpeech({engine:id,voice:first});}
+ function chooseVoice(id:string){stop();auto.current=false;setVoice(id);saveSpeech({engine:engineId,voice:id});}
  async function prepare(text:string,signal:AbortSignal):Promise<HTMLAudioElement>{
-  return cache.current.get(voice+'|'+text,signal,async()=>{
-   const res=await fetch('/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,voice,...(!configured?{key}: {})}),signal});
+  return cache.current.get(engineId+'|'+voice+'|'+text,signal,async()=>{
+   const res=await fetch('/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:engineId,text,voice,...(!engine.configured&&keys[engineId]?{key:keys[engineId]}:{})}),signal});
    if(!res.ok){const e=await res.json() as {error?:string};throw Error(e.error||'Unable to generate speech.');}
    const blob=await res.blob();if(signal.aborted)throw new DOMException('Cancelled','AbortError');
    const url=URL.createObjectURL(blob),player=new Audio();player.preload='auto';player.src=url;
@@ -247,10 +257,11 @@ export default function Home(){
  return <main onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setDrag(false);}} onDrop={e=>{e.preventDefault();setDrag(false);const file=e.dataTransfer.files[0];if(file)void load(file);}} className={[drag?'drag':'',cleanMode?'clean-mode':''].join(' ')}>
  <header><div className="brand"><button className="sidebar-toggle" aria-label={sidebar?'Hide sidebar':'Show sidebar'} aria-expanded={sidebar} aria-controls="reader-settings" onClick={()=>{clearSelection();setSidebar(!sidebar);saveReading({sidebar:!sidebar});}}><PanelLeft size={20}/></button><Headphones/> Paper / voice</div><span>YOUR READING ROOM</span><div className="header-actions"><button ref={cleanButton} disabled={!doc} title="Hide controls for clean reading" onClick={enterClean}><Maximize size={18}/><span>Clean mode</span></button><button className="theme-toggle" type="button" aria-label="Dark mode" aria-pressed={dark} title={dark?'Switch to light mode':'Switch to dark mode'} onClick={toggleTheme}>{dark?<Sun size={18}/>:<Moon size={18}/>}<span>{dark?'Light mode':'Dark mode'}</span></button><label className="upload" style={{margin:0}}><Upload size={16}/> Open PDF<input aria-label="Open PDF" type="file" accept="application/pdf,.pdf" onChange={e=>{if(e.target.files?.[0])void load(e.target.files[0]);e.target.value='';}}/></label></div></header>
  <div className={sidebar?"workspace reader-workspace":"workspace reader-workspace sidebar-hidden"}><aside id="reader-settings" hidden={!sidebar}><p className="eyebrow">VOICE SETTINGS</p>
- <label>Voice<select value={voice} onChange={e=>{stop();auto.current=false;setVoice(e.target.value);}}>{['marin','cedar','coral','alloy','ash','ballad','echo','fable','nova','onyx','sage','shimmer','verse'].map(v=><option key={v} value={v}>{v[0].toUpperCase()+v.slice(1)}</option>)}</select></label>
+ <label>Speech engine<select value={engineId} onChange={e=>chooseEngine(e.target.value)}>{engines.map(e=><option key={e.id} value={e.id}>{e.name} · {e.model}</option>)}</select></label>
+ <label>Voice<select value={voice} onChange={e=>chooseVoice(e.target.value)}>{engine.voices.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
  <label>Playback speed<select value={speed} onChange={e=>setSpeed(Number(e.target.value))}>{[.75,1,1.25,1.5,1.75,2].map(v=><option key={v} value={v}>{v}×{v===1?' · Normal':''}</option>)}</select></label>
- {configured?<div className="status">OpenAI connected <small>gpt-4o-mini-tts · AI-generated voice</small></div>:<label>OpenAI API key<input autoComplete="off" type="password" value={key} placeholder="sk-…" onChange={e=>setKey(e.target.value)}/><small>Used for this session only.</small></label>}
- <p className="status">Your PDF stays on this computer. When you press play, text is sent to OpenAI for speech, including up to two upcoming passages to keep playback flowing.</p>
+ {engine.configured?<div className="status">{engine.name} connected <small>{engine.model} · AI-generated voice</small></div>:<label>{engine.name} API key<input autoComplete="off" type="password" value={keys[engineId]||''} placeholder={engineId==='openai'?'sk-…':'sk_car_…'} onChange={e=>setKeys({...keys,[engineId]:e.target.value})}/><small>Used for this session only.</small></label>}
+ <p className="status">Your PDF stays on this computer. When you press play, text is sent to {engine.name} for speech, including up to two upcoming passages to keep playback flowing.</p>
  </aside><section className="desk">
  <div className="toolbar"><div className="controls"><FileText size={18}/><strong>{name||'Your document'}</strong></div>{doc&&<div className="controls"><button aria-label="Previous page" disabled={page===1} onClick={()=>navigate(page-1)}><ChevronLeft size={18}/></button><input key={page} aria-label="Page number" className="pageinput" type="number" min={1} max={doc.numPages} defaultValue={page} onBlur={e=>{navigate(Number(e.target.value));e.target.value=String(page);}} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}/><small>of {doc.numPages}</small><button aria-label="Next page" disabled={page===doc.numPages} onClick={()=>navigate(page+1)}><ChevronRight size={18}/></button></div>}</div>
  {doc&&<div className="reader-tools"><div className="view-options" role="group" aria-label="Reading view"><button aria-pressed={view==='pdf'} onClick={()=>changeView('pdf')}><FileText size={16}/>PDF</button><button aria-pressed={view==='reader'} onClick={()=>changeView('reader')}><BookOpen size={16}/>Reading view</button></div>{view==='pdf'?<div className="controls"><button aria-label="Zoom out" disabled={zoom<=.5} onClick={()=>{clearSelection();setZoom(Math.max(.5,zoom-.25));}}><Minus size={16}/></button><button onClick={()=>{clearSelection();setZoom(1);}} title="Fit page width">{zoom===1?'Fit width':`${Math.round(zoom*100)}%`}</button><button aria-label="Zoom in" disabled={zoom>=3} onClick={()=>{clearSelection();setZoom(Math.min(3,zoom+.25));}}><Plus size={16}/></button></div>:<div className="controls"><button aria-label="Smaller text" disabled={fontSize<=18} onClick={()=>changeFont(fontSize-2)}>A−</button><span>{fontSize} px</span><button aria-label="Larger text" disabled={fontSize>=40} onClick={()=>changeFont(fontSize+2)}>A+</button></div>}</div>}
