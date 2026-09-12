@@ -35,8 +35,7 @@ Either one is enough; choose the engine under **Speech engine** in the sidebar. 
 
 ## Read a PDF
 
-- The app opens `~/manuscript.pdf` automatically when that file exists.
-- Use **Open PDF**, or drag a PDF into the window, to open another document.
+- Use **Open PDF**, or drag a PDF into the window, to open a document.
 - Drag across text, then choose **Read selection** to hear only that part.
 - Choose **Read page** to read the displayed page and stop at its end.
 - Choose **Read entire document** to start from page 1 and continue through the document.
@@ -56,8 +55,6 @@ During playback, the current passage is highlighted. Audio buffers ahead to redu
 ## Troubleshooting
 
 **No speech:** Check your internet connection, the API key, and the plan's credits or billing for the selected engine. Cartesia's free plan allows two concurrent requests; the app queues its look-ahead requests to stay within that. The app displays an error if a speech request fails.
-
-**The example PDF is missing:** Use Open PDF to choose a document. Your manuscript is not included in the installer.
 
 **The app closes but remains in the Dock:** This is normal macOS behavior. Choose **Paper Voice → Quit Paper Voice** or press **Command-Q** to quit completely.
 

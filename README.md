@@ -27,8 +27,6 @@ npm run dev
 
 Open http://127.0.0.1:5173 and drop a PDF anywhere, or use **Open PDF**. `predev` copies `SONIC` (a Cartesia key) and `OPENAI` from `~/.env` into the git-ignored `.dev.vars`. An engine without a configured key offers a password field for a session-only key. `npm run build` produces the deployable worker in `dist/`.
 
-If `public/examples/manuscript.pdf` exists it is opened automatically as the example; the repository does not ship one.
-
 ## Build the macOS app
 
 ```sh
@@ -37,7 +35,7 @@ npm run desktop:dev        # …and launch it in Electron
 npm run desktop:package    # …and build the DMG into work/mac-release/
 ```
 
-The app bundles Electron, the built reader, PDF.js worker, CMaps and standard fonts, and a small local HTTP server that serves the reader on a loopback port and proxies speech requests. It reads `SONIC` and `OPENAI` from `~/.env` at request time and opens `~/manuscript.pdf` when present. The DMG is ad-hoc signed for local use; Developer ID signing and notarization are not configured.
+The app bundles Electron, the built reader, PDF.js worker, CMaps and standard fonts, and a small local HTTP server that serves the reader on a loopback port and proxies speech requests. It reads `SONIC` and `OPENAI` from `~/.env` at request time; documents are opened with Open PDF or by dropping them onto the window. The DMG is ad-hoc signed for local use; Developer ID signing and notarization are not configured.
 
 ## Checks
 

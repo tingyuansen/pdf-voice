@@ -15,6 +15,6 @@ const {startServer}=require('../desktop/server.cjs');
  if(openai.configured){const alt=await fetch(origin+'/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:'openai',text:'Paper Voice is ready to read.',voice:'marin'})});assert.equal(alt.status,200);assert((await alt.arrayBuffer()).byteLength>1000);}
  // Three passages are requested at once during playback; the server must serialise them under Cartesia's concurrency cap instead of surfacing 429s.
  const burst=await Promise.all([0,1,2].map(i=>fetch(origin+'/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:'cartesia',text:`Concurrent passage number ${i+1}.`,voice:cartesia.voices[0].id})}).then(async r=>{const bytes=(await r.arrayBuffer()).byteLength;return r.status===200&&bytes>1000?200:r.status;})));assert.deepEqual(burst,[200,200,200]);
- assert(!fs.existsSync('work/desktop-package/.env'));assert(!fs.existsSync('work/desktop-package/desktop-dist/examples'));
- console.log('PASS: packaged assets, Cartesia and OpenAI key lookup, request validation, foreign origin protection, live speech, concurrency limiting, no bundled manuscript.');
+ assert(!fs.existsSync('work/desktop-package/.env'));assert(!fs.existsSync('work/desktop-package/desktop-dist/examples'));assert.equal((await fetch(origin+'/examples/manuscript.pdf')).status,404,'no document is served from the home folder');
+ console.log('PASS: packaged assets, Cartesia and OpenAI key lookup, request validation, foreign origin protection, live speech, concurrency limiting, no bundled or home-folder manuscript.');
 }finally{server.close();server.closeAllConnections();}})().catch(e=>{console.error(e);process.exitCode=1;});

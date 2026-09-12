@@ -59,9 +59,7 @@ async function startServer(root,preferredPort=0){
     res.on('close',release);res.writeHead(200,{'Content-Type':'audio/mpeg','Cache-Control':'no-store'});Readable.fromWeb(response.body).on('error',()=>res.destroy()).pipe(res);return;
    }
    if(req.method!=='GET'&&req.method!=='HEAD')return json(405,{error:'Method not allowed.'});
-   let file;
-   if(pathname==='/examples/manuscript.pdf')file=path.join(os.homedir(),'manuscript.pdf');
-   else {file=path.resolve(root,'.'+decodeURIComponent(pathname==='/'?'/index.html':pathname));if(!file.startsWith(root+path.sep))return json(403,{error:'Invalid path.'});}
+   const file=path.resolve(root,'.'+decodeURIComponent(pathname==='/'?'/index.html':pathname));if(!file.startsWith(root+path.sep))return json(403,{error:'Invalid path.'});
    const stat=await fs.promises.stat(file).catch(()=>null);if(!stat?.isFile())return json(404,{error:'File not found.'});
    res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Content-Length':stat.size,'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self' data: blob:; object-src 'none'; frame-ancestors 'none'"});
    if(req.method==='HEAD')return res.end();fs.createReadStream(file).on('error',()=>res.destroy()).pipe(res);
