@@ -2,6 +2,18 @@
 
 Versions of the macOS app. Each entry describes what changed for readers; the README describes how the reader works today.
 
+## 1.7.0 — pause anywhere, pinch zoom, clean mode by default
+
+The play/pause button now pauses whenever you press it, including while a passage is still being prepared: the clip finishes into the store and waits, and **Resume** starts it — instead of the button turning into **Cancel** and dropping the reading. Pausing during the silence while a page turns, or while the first passage of a document is still generating, no longer loses your place; document playback crosses page breaks and keeps going.
+
+An itemize or enumerate item is read as one passage: the indented lines a wrapped item continues on no longer split it into a chunk per line, and any line that starts a new marker (bullet, dash, "(i)", "1.") always begins a new item. A paragraph after a list stays its own paragraph.
+
+**Reload** keeps the current page in PDF view as well as Reading view: the page no longer snaps back to 1 while the reloaded pages settle into place.
+
+PDF view zooms with a trackpad pinch (and ctrl/⌘ + scroll), clamped to the same 50–300 % as the buttons.
+
+**Clean mode** is now the default when a document opens — the floating controls carry an **Open PDF** button (dropping a PDF anywhere still works), a light/dark toggle, reload, and the voice button; Esc or the restore button brings the full window back. A reload keeps the mode you are in.
+
 ## 1.6.0 — audio kept for the session, snapped selections, Reload, OpenAI default
 
 Generated speech is kept in memory for the whole session instead of being thrown away when playback stops, the engine changes, or another PDF opens. Replaying a passage, jumping back to an earlier page, or reading a revised PDF only sends text that has not been spoken before. A passage that was already requested when you skip past it now finishes into the store rather than being cancelled and requested again, since the engine bills it either way. The store holds up to 256 MB (roughly four papers), evicts the oldest clips first, never touches the disk, and is gone when the app quits.

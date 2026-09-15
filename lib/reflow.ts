@@ -9,7 +9,7 @@ export type ReflowOptions={furniture?:ReadonlySet<number>;view?:readonly number[
 type Piece={text:string;indices:number[];script?:Script['kind']};
 type Figure={caption:Line[];lines:Line[];box:CropBox;label:string;table:boolean};
 type Line={pieces:Piece[];items:Item[];x:number;y:number;end:number;height:number;last:Item;rotated:boolean;equation?:boolean;figure?:Figure;caption?:Figure};
-type Group={pieces:Piece[];kind:ReflowBlock['kind'];items:Item[];figure?:Figure};
+type Group={pieces:Piece[];kind:ReflowBlock['kind'];items:Item[];figure?:Figure;list?:boolean};
 const clean=(s:string)=>s.replace(/[ﬀﬁﬂﬃﬄ]/g,c=>({'ﬀ':'ff','ﬁ':'fi','ﬂ':'fl','ﬃ':'ffi','ﬄ':'ffl'}[c]!)).replace(/´([A-Za-zı])/g,(_,c)=>((c==='ı'?'i':c)+'́').normalize('NFC'));
 const itemHeight=(item:Item)=>item.height||Math.hypot(item.transform[2]||0,item.transform[3]||0)||10;
 const itemX=(item:Item)=>item.transform[4]||0,itemY=(item:Item)=>item.transform[5]||0;
@@ -25,6 +25,10 @@ const GLYPH=/^[\u0000-\u001f\s]+$/;
 const SUFFIX=/^(?:ing|ings|tion|tions|sion|sions|ed|ly|ment|ments|ness|ity|ities|ous|ive|ively|ally|ance|ence|ent|ant|ers?|ations?|ising|izing|ised|ized|able|ible|ful|less|tors?|tory|tures?|tive)$/;
 // Caption labels: "Figure 1.", "Fig. 2:", "FIGURE 3 —", "Table 1", "Fig. 1 |".
 const CAPTION=/^(?:fig(?:ure)?s?\.?|table|plate|chart|scheme|listing|algorithm)\s*[A-Z]?\d{1,3}[a-z]?\s*(?:[.:|—–-]|$)/i;
+// List markers as set by itemize/enumerate: bullet glyphs, dashes, (i), 1., a).
+const BULLET=/^[•▪▫◦‣⁃●○◉∙·∗]\s*/;
+const ENUMERATED=/^\(?(?:\d{1,3}|[a-z]{1,3}|[A-Z]{1,3}|[ivxIVX]{1,5})[.)]\s+/;
+const listStart=(text:string)=>BULLET.test(text)||ENUMERATED.test(text);
 function lineText(line:Line){return line.pieces.map(p=>p.text).join('');}
 function heading(line:Line){const text=lineText(line).trim();return text.length<180&&((text.match(/[A-Za-z]/g)||[]).length>=3&&/[A-Z]/.test(text)&&text===text.toUpperCase()||/^\d+(?:\.\d+)*\.\s+[A-Z]/.test(text));}
 // Numbered drafts print small integers beside every line, outside the text
@@ -215,12 +219,12 @@ export function reflowItems(items:Item[],documentWords:ReadonlySet<string>=new S
    else groups.push({pieces:[...line.pieces],kind:'caption',items:[...line.items],figure:line.caption});
    continue;
   }
-  const isHeading=heading(line);let newBlock=!prev||prev.equation===true;
+  const isHeading=heading(line),lineList=!isHeading&&listStart(lineText(line).trim());let newBlock=lineList||!prev||prev.equation===true;
   if(prev&&(prev.figure||prev.caption)){
    // Text after a float continues the paragraph the float interrupted unless
    // that paragraph ended or this line is indented as a new one.
    const indented=line.x-columnOf(line).x>body*.55;
-   newBlock=!(lastParagraph&&!isHeading&&!indented&&!endsSentence(lastParagraph.pieces.map(p=>p.text).join('')));
+   newBlock=lineList||!(lastParagraph&&!isHeading&&!indented&&!endsSentence(lastParagraph.pieces.map(p=>p.text).join('')));
    // The float then moves behind the paragraph it interrupted, including any
    // display that completes it, and reappears at the next paragraph break.
    if(!newBlock)while(groups.at(-1)?.kind==='caption')deferred.unshift(groups.pop()!);
@@ -228,20 +232,26 @@ export function reflowItems(items:Item[],documentWords:ReadonlySet<string>=new S
    const gap=prev.y-line.y,shift=line.x-prev.x,prevHeading=heading(prev)||groups.at(-1)?.kind==='heading';
    const columnJump=gap < -body*2&&shift>typicalWidth*.6;
    const indent=shift>body*.55&&shift<body*2.2;
+   // A wrapped list item indents its continuation like a new paragraph; only
+   // a marker line starts a new item, so indentation alone must not split it.
+   const itemContinues=indent&&!lineList&&Boolean(lastParagraph?.list||listStart(lineText(prev).trim()));
    const gapBreak=gap>body*1.65;
    const sizeBreak=Math.abs(line.height-prev.height)>body*.25;
    const shortEnded=endsSentence(lineText(prev))&&(prev.end-prev.x)<typicalWidth*.72;
-   newBlock=isHeading||prevHeading||(!columnJump&&(gapBreak||sizeBreak||indent||shortEnded||gap< -body*.6||Math.abs(shift)>typicalWidth*.65));
+   // Inside an indented item, an unmarked line back at the column margin is
+   // the list ending, not another wrapped line of the item.
+   const listEnded=Boolean(lastParagraph?.list&&!lineList&&atMargin(line));
+   newBlock=isHeading||prevHeading||lineList||(!columnJump&&(gapBreak||sizeBreak||(indent&&!itemContinues)||shortEnded||listEnded||gap< -body*.6||Math.abs(shift)>typicalWidth*.65));
    // A column continuation isn't a paragraph unless the new line is indented
    // relative to subsequent lines in that same column.
-   if(columnJump){const next=lines[n+1];newBlock=isHeading||prevHeading||Boolean(next&&line.x-next.x>body*.55&&line.x-next.x<body*2.2);}
+   if(columnJump){const next=lines[n+1];newBlock=isHeading||prevHeading||lineList||Boolean(next&&line.x-next.x>body*.55&&line.x-next.x<body*2.2);}
    // Numerators and denominators of inline fractions sit a fraction of a line
    // above or below their text line; they continue the paragraph.
    if(Math.abs(gap)<body*1.05&&!isHeading&&!prevHeading&&(width(line)<typicalWidth*.5||width(prev)<typicalWidth*.5))newBlock=false;
    // A centred short line right under a heading is the heading's second line.
    if(prevHeading&&!isHeading&&!atMargin(line)&&width(line)<typicalWidth*.8&&gap>0&&gap<body*1.4&&!sizeBreak&&columnOf(line)===columnOf(prev)&&!MATH.test(lineText(line))&&!endsSentence(lineText(line)))newBlock=false;
   }
-  if(newBlock||!lastParagraph){groups.push(...deferred);deferred=[];lastParagraph={pieces:[],kind:isHeading?'heading':'paragraph',items:[]};groups.push(lastParagraph);}
+  if(newBlock||!lastParagraph){groups.push(...deferred);deferred=[];lastParagraph={pieces:[],kind:isHeading?'heading':'paragraph',items:[],...(isHeading?{}:{list:lineList&&!atMargin(line)})};groups.push(lastParagraph);}
   const group=lastParagraph;
   if(group.pieces.length){
    const tail=group.pieces.map(p=>p.text).join('').slice(-60);const first=line.pieces[0];

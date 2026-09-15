@@ -5,17 +5,22 @@ import {rasterSize} from '../lib/reader';
 type Jump={page:number;token:number};
 // Every page is laid out at its final size in one scrolling column; only pages
 // within about a screen of the viewport hold a rendered canvas and text layer.
-export function PdfSurface({doc,aspects,zoom,textRef,onSelect,onVisiblePage,overlay,jump}:{doc:PDFDocumentProxy;aspects:number[];zoom:number;textRef:RefObject<HTMLDivElement|null>;onSelect:()=>void;onVisiblePage:(page:number)=>void;overlay:(page:number)=>ReactNode;jump:Jump|null}){
+export function PdfSurface({doc,aspects,zoom,onZoom,textRef,onSelect,onVisiblePage,overlay,jump}:{doc:PDFDocumentProxy;aspects:number[];zoom:number;onZoom:(factor:number)=>void;textRef:RefObject<HTMLDivElement|null>;onSelect:()=>void;onVisiblePage:(page:number)=>void;overlay:(page:number)=>ReactNode;jump:Jump|null}){
  const scroller=useRef<HTMLDivElement>(null),frame=useRef(0);
  const [width,setWidth]=useState(800),[near,setNear]=useState<ReadonlySet<number>>(new Set([1]));
  useEffect(()=>{const node=scroller.current;if(!node)return;const update=()=>setWidth(Math.max(200,node.clientWidth-32));update();const observer=new ResizeObserver(update);observer.observe(node);return()=>observer.disconnect();},[]);
+ // Trackpad pinch arrives as a wheel event with a control modifier; the pages
+ // stay a centred column, so the whole surface zooms by the pinched factor.
+ useEffect(()=>{const node=scroller.current;if(!node)return;const onWheel=(event:WheelEvent)=>{if(!event.ctrlKey&&!event.metaKey)return;event.preventDefault();onZoom(Math.exp(-event.deltaY*.01));};node.addEventListener('wheel',onWheel,{passive:false});return()=>node.removeEventListener('wheel',onWheel);},[onZoom]);
  useEffect(()=>{
   const root=scroller.current,host=textRef.current;if(!root||!host)return;
   const observer=new IntersectionObserver(entries=>{setNear(previous=>{const next=new Set(previous);for(const entry of entries){const n=Number((entry.target as HTMLElement).dataset.page);if(entry.isIntersecting)next.add(n);else next.delete(n);}return next;});},{root,rootMargin:'80% 0px'});
   for(const element of host.querySelectorAll<HTMLElement>('[data-page]'))observer.observe(element);
   return()=>observer.disconnect();
  },[doc,aspects.length,textRef]);
- useEffect(()=>{if(jump)textRef.current?.querySelector(`[data-page="${jump.page}"]`)?.scrollIntoView({block:'start'});},[jump,textRef]);
+ // Re-align when the surface settles at its measured width, so a jump issued
+ // while pages were still laid out at the initial width lands where it aimed.
+ useEffect(()=>{if(jump)textRef.current?.querySelector(`[data-page="${jump.page}"]`)?.scrollIntoView({block:'start'});},[jump,textRef,width]);
  function followScroll(){
   if(frame.current)return;
   frame.current=requestAnimationFrame(()=>{
