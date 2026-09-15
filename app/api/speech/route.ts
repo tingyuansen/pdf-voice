@@ -2,8 +2,8 @@ import { env } from 'cloudflare:workers';
 // Two speech engines, chosen per request by the reader: Cartesia Sonic 3.6 (key SONIC) and OpenAI gpt-4o-mini-tts (key OPENAI).
 // The tables are mirrored in desktop/server.cjs, which ships standalone inside the macOS app.
 const providers={
- cartesia:{name:'Cartesia',model:'sonic-3.6',variable:'SONIC',voices:[['694f9389-aac1-45b6-b726-9d9369183238','Sarah'],['b24f41fd-00a3-4cd8-992a-a0c9f13f3ef1','Clive'],['aa2cafe9-97ba-4052-ac3c-875000f95212','Zander'],['5568a7df-e5ab-4442-9fae-2e9ba1b15ad8','Quentin'],['8c254787-4eb4-4577-bd3d-fb3c273baea2','Rowan'],['47c38ca4-5f35-497b-b1a3-415245fb35e1','Daniel'],['ef191366-f52f-447a-a398-ed8c0f2943a1','Archie'],['a33f7a4c-100f-41cf-a1fd-5822e8fc253f','Lauren'],['7348f896-8516-4382-9c8f-ad2aee1ffedc','Naledi'],['273f9ef7-9fc2-4def-88bb-ab108c6249ca','Julia'],['db6b0ed5-d5d3-463d-ae85-518a07d3c2b4','Skylar'],['62ae83ad-4f6a-430b-af41-a9bede9286ca','Gemma'],['9626c31c-bec5-4cca-baa8-f8ba9e84c8bc','Jacqueline'],['d1d9c946-7cfc-4378-85a4-07d09827cb7e','Jolene']]},
  openai:{name:'OpenAI',model:'gpt-4o-mini-tts',variable:'OPENAI',voices:['marin','cedar','coral','alloy','ash','ballad','echo','fable','nova','onyx','sage','shimmer','verse'].map(v=>[v,v[0].toUpperCase()+v.slice(1)])},
+ cartesia:{name:'Cartesia',model:'sonic-3.6',variable:'SONIC',voices:[['694f9389-aac1-45b6-b726-9d9369183238','Sarah'],['b24f41fd-00a3-4cd8-992a-a0c9f13f3ef1','Clive'],['aa2cafe9-97ba-4052-ac3c-875000f95212','Zander'],['5568a7df-e5ab-4442-9fae-2e9ba1b15ad8','Quentin'],['8c254787-4eb4-4577-bd3d-fb3c273baea2','Rowan'],['47c38ca4-5f35-497b-b1a3-415245fb35e1','Daniel'],['ef191366-f52f-447a-a398-ed8c0f2943a1','Archie'],['a33f7a4c-100f-41cf-a1fd-5822e8fc253f','Lauren'],['7348f896-8516-4382-9c8f-ad2aee1ffedc','Naledi'],['273f9ef7-9fc2-4def-88bb-ab108c6249ca','Julia'],['db6b0ed5-d5d3-463d-ae85-518a07d3c2b4','Skylar'],['62ae83ad-4f6a-430b-af41-a9bede9286ca','Gemma'],['9626c31c-bec5-4cca-baa8-f8ba9e84c8bc','Jacqueline'],['d1d9c946-7cfc-4378-85a4-07d09827cb7e','Jolene']]},
 } as const;
 type Provider=keyof typeof providers;
 function configuredKey(provider:Provider){const value=(env as Record<string,unknown>)[providers[provider].variable];return typeof value==='string'&&value.trim()?value.trim():'';}
@@ -23,7 +23,7 @@ export async function POST(request:Request){
  if(origin && origin!==new URL(request.url).origin)return Response.json({error:'Request origin not allowed.'},{status:403});
  try{
   if(Number(request.headers.get('content-length'))>16000)return Response.json({error:'Passage too large.'},{status:413});
-  const {provider='cartesia',text,voice,key}=await request.json() as {provider?:unknown;text:unknown;voice?:unknown;key?:unknown};
+  const {provider='openai',text,voice,key}=await request.json() as {provider?:unknown;text:unknown;voice?:unknown;key?:unknown};
   if(typeof provider!=='string'||!(provider in providers))return Response.json({error:'Unknown speech engine.'},{status:400});
   const engine=providers[provider as Provider],name=engine.name;
   const apiKey=configuredKey(provider as Provider)||(typeof key==='string'?key.trim():'');

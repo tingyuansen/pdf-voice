@@ -8,7 +8,7 @@ const {startServer}=require('../desktop/server.cjs');
  assert.equal(cartesia.configured,true);assert.equal(cartesia.model,'sonic-3.6');assert(cartesia.voices.length>=10&&cartesia.voices.every(v=>v.id&&v.name));
  assert.equal(openai.model,'gpt-4o-mini-tts');assert(openai.voices.some(v=>v.id==='marin'));
  assert.equal((await fetch(origin+'/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"text":"Hello","voice":"invalid"}'})).status,400);
- assert.equal((await fetch(origin+'/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"text":"Hello","voice":"marin"}'})).status,400,'an OpenAI voice is rejected by the Cartesia engine');
+ assert.equal((await fetch(origin+'/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'Hello',voice:cartesia.voices[0].id})})).status,400,'a Cartesia voice is rejected by the default OpenAI engine');
  assert.equal((await fetch(origin+'/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"provider":"other","text":"Hello","voice":"marin"}'})).status,400);
  assert.equal((await fetch(origin+'/api/speech',{method:'POST',headers:{Origin:'https://example.com','Content-Type':'application/json'},body:'{"text":"Hello"}'})).status,403);
  const speech=await fetch(origin+'/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:'cartesia',text:'Paper Voice is ready to read.',voice:cartesia.voices[0].id})});assert.equal(speech.status,200);assert.equal(speech.headers.get('content-type'),'audio/mpeg');assert((await speech.arrayBuffer()).byteLength>1000);

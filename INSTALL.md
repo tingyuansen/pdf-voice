@@ -8,7 +8,7 @@
 
 ## Install
 
-1. Download `Paper-Voice-1.5.0-arm64.dmg` from the [Releases](https://github.com/tingyuansen/pdf-voice/releases) page and open it.
+1. Download `Paper-Voice-1.6.0-arm64.dmg` from the [Releases](https://github.com/tingyuansen/pdf-voice/releases) page and open it.
 2. In the installer window, drag **Paper Voice** onto **Applications**.
 3. Wait for the copy to finish.
 4. Eject the **Paper Voice** disk image in Finder.
@@ -31,12 +31,12 @@ SONIC=your_cartesia_api_key
 OPENAI=your_openai_api_key
 ```
 
-Either one is enough; choose the engine under **Speech engine** in the sidebar. Cartesia Sonic 3.6 reads more naturally, OpenAI costs about a quarter as much per character. The keys stay on this computer and are used by the app's local server. They are not bundled in the installer. If an engine has no configured key, enter one in the app's password field for the current session. Speech usage is charged to that API account.
+Either one is enough; choose the engine under **Speech engine** in the sidebar. OpenAI is the default and costs about a quarter as much per character; Cartesia Sonic 3.6 reads more naturally. The keys stay on this computer and are used by the app's local server. They are not bundled in the installer. If an engine has no configured key, enter one in the app's password field for the current session. Speech usage is charged to that API account.
 
 ## Read a PDF
 
-- Use **Open PDF**, or drag a PDF into the window, to open a document.
-- Drag across text, then choose **Read selection** to hear only that part.
+- Use **Open PDF**, or drag a PDF into the window, to open a document. **Reload** re-reads the same file from disk after it changes, staying on the current page; passages already heard are not generated again.
+- Drag across text, then choose **Read selection** to hear only that part. The selection snaps to whole sentences it mostly covers, so sentences you have already heard replay without being generated again; dragging while listening does not stop playback.
 - Choose **Read page** to read the displayed page and stop at its end.
 - Choose **Read entire document** to start from page 1 and continue through the document.
 - Use **Pause / Resume**, the passage controls, voice selection, and playback speed as needed.
@@ -64,7 +64,7 @@ During playback, the current passage is highlighted. Audio buffers ahead to redu
 
 ## Build details
 
-Version: 1.5.0 · Architecture: Apple Silicon / arm64
+Version: 1.6.0 · Architecture: Apple Silicon / arm64
 
 The installer contains the reader and its runtime. It does not contain your API key or any document. Each release is checked for app launch, local signature, installer checksum, and a live speech request through the desktop server.
 

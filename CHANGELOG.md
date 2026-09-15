@@ -2,6 +2,16 @@
 
 Versions of the macOS app. Each entry describes what changed for readers; the README describes how the reader works today.
 
+## 1.6.0 — audio kept for the session, snapped selections, Reload, OpenAI default
+
+Generated speech is kept in memory for the whole session instead of being thrown away when playback stops, the engine changes, or another PDF opens. Replaying a passage, jumping back to an earlier page, or reading a revised PDF only sends text that has not been spoken before. A passage that was already requested when you skip past it now finishes into the store rather than being cancelled and requested again, since the engine bills it either way. The store holds up to 256 MB (roughly four papers), evicts the oldest clips first, never touches the disk, and is gone when the app quits.
+
+Dragging across text now snaps to the passages the page already reads: a sentence the drag covers by at least half is read exactly as **Read page** reads it, so a selection that overlaps anything heard before replays those clips instead of generating them again, in both PDF and Reading view; only a short piece inside a sentence is read as dragged. Selecting text no longer interrupts playback — the drag becomes the selection to read next, and **Read selection** starts it when you are ready.
+
+A **Reload** button in the header (and in the floating clean-mode controls) re-reads the open PDF from disk, so a re-exported paper is picked up in place, keeping the current page.
+
+OpenAI gpt-4o-mini-tts is now the default engine for a fresh install; a previously chosen engine is still remembered.
+
 ## 1.5.0 — Cartesia Sonic 3.6, switchable speech engines
 
 A **Speech engine** control in the sidebar chooses between Cartesia Sonic 3.6 (new, read from the `SONIC` key in `~/.env`) and OpenAI gpt-4o-mini-tts (as before, from `OPENAI`). Each engine has its own voice list, served by the app so the sidebar always shows the voices of the engine in use: 14 English voices for Sonic (Sarah, Clive, Zander, Quentin, Rowan, Daniel, Archie, Lauren, Naledi, Julia, Skylar, Gemma, Jacqueline, Jolene) and the 13 OpenAI voices. Sonic reads numbers, decimals and Greek-letter names in scientific prose more faithfully and starts speaking sooner; OpenAI costs about a quarter as much per character. The chosen engine and voice are remembered between sessions, the buffered audio is dropped on a switch so the new voice starts at once, and an engine without a configured key offers the session-only key field. The app's local server queues Sonic look-ahead requests so Cartesia's free-plan limit of two concurrent requests never surfaces as an error.

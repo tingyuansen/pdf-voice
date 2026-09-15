@@ -11,7 +11,8 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   window=new BrowserWindow({width:1280,height:920,minWidth:640,minHeight:600,title:'Paper Voice',backgroundColor:'#101722',show:false,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   window.webContents.on('will-navigate',(event,url)=>{if(new URL(url).origin!==origin)event.preventDefault();});
-  window.webContents.session.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));
+  // Only read access to a single file is granted: the File System Access picker and dropped files return handles Reload can re-read after the PDF changes on disk.
+  window.webContents.session.setPermissionRequestHandler((_contents,permission,callback,details)=>callback(permission==='fileSystem'&&details.fileAccessType!=='writable'&&!details.isDirectory));
   window.once('ready-to-show',()=>{if(!smoke)window.show();});
   window.on('closed',()=>{window=null;});
   await window.loadURL(origin);

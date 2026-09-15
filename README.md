@@ -10,8 +10,10 @@ It runs as a macOS desktop app (Electron, Apple Silicon) and as a web app served
 
 - **Two views of the same document.** *PDF view* shows the pages as printed, scrolling continuously, with fit-width and 50–300 % zoom and sharp rendering at the display's pixel ratio. *Reading view* reflows the text into one comfortable column (18–40 px) that runs across page boundaries.
 - **Equations, figures and tables as set in the paper.** Reading view detects display equations from their labels and geometry, and figures and tables from their captions, then rasterises those regions from the PDF page and shows them inline at the reading size. Inline sub- and superscripts are rendered as such. Running heads, page numbers and draft line numbers are recognised and dropped.
-- **Listen.** Two speech engines, switchable in the sidebar: Cartesia `sonic-3.6` (14 voices, the more natural reader) and OpenAI `gpt-4o-mini-tts` (13 voices, roughly a quarter of the price per character). Playback speed 0.75–2×. Read a selection, the current page, or the whole document; playback buffers ahead, continues across pages, and the passage being read is highlighted in either view. Equations are announced by number rather than read symbol by symbol; figures are skipped and their captions read.
+- **Listen.** Two speech engines, switchable in the sidebar: OpenAI `gpt-4o-mini-tts` (the default; 13 voices, roughly a quarter of the price per character) and Cartesia `sonic-3.6` (14 voices, the more natural reader). Playback speed 0.75–2×. Read a selection, the current page, or the whole document; playback buffers ahead, continues across pages, and the passage being read is highlighted in either view. Every clip generated in a session is kept in memory (up to 256 MB, oldest evicted first), so replaying a passage, re-reading an earlier page, or reloading a revised PDF only sends text that has not been spoken yet; nothing is written to disk and the store empties when the app closes. Equations are announced by number rather than read symbol by symbol; figures are skipped and their captions read.
 - **Clean mode** hides every control except a small floating play button. Dark mode inverts the page with hues preserved, so figures keep their colours.
+- **Selections snap to sentences.** A drag is cut at the page's own passage boundaries: any sentence it covers by at least half is read verbatim, so overlapping or superset selections reuse the clips already generated, in either view; a short phrase inside a sentence is read as dragged. Selecting while listening leaves playback running and queues the selection for **Read selection**.
+- **Reload.** A **Reload** button re-reads the open file from disk and keeps your page, so a re-exported paper is picked up without hunting for it again. The desktop app and Chromium browsers re-read the file through a file handle; other browsers hold only a snapshot and ask you to open the new version instead.
 - **Private by construction.** The PDF never leaves the machine; only the passages you play are sent to the selected speech engine. The API key stays on the server side (the Cloudflare worker, or the app's loopback-only local server), never in the browser.
 
 The layout analysis is geometric — column edges from clusters of long lines, the modal line end as the margin, glyph size and baseline offsets for scripts, caption anchors and vertical bands for floats — and is not tuned to any particular paper. It has been checked against two-column astronomy manuscripts (including a numbered draft with full-width captions), a Word-exported proposal with image-only figures, and prose-only documents, where nothing is detected.
@@ -40,7 +42,7 @@ The app bundles Electron, the built reader, PDF.js worker, CMaps and standard fo
 ## Checks
 
 ```sh
-npm test            # layout, phrase, decimal, buffer and playback checks (pure Node)
+npm test            # layout, phrase, decimal, buffer, selection and playback checks (pure Node)
 npm run test:desktop  # packaged local server: assets, key handling, one live speech request
 npx tsc --noEmit
 npm run lint
