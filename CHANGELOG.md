@@ -2,6 +2,12 @@
 
 Versions of the macOS app. Each entry describes what changed for readers; the README describes how the reader works today.
 
+## 1.7.1 — page counter in clean mode, restart from the beginning
+
+Clean mode shows the page you are on out of the document's total, beside the floating voice control; it follows the scroll and the reader alike.
+
+When a reading finishes, the transport returns to its first passage, so pressing **Listen** again reads the page (or selection) from the beginning instead of replaying only the last passage.
+
 ## 1.7.0 — pause anywhere, pinch zoom, clean mode by default
 
 The play/pause button now pauses whenever you press it, including while a passage is still being prepared: the clip finishes into the store and waits, and **Resume** starts it — instead of the button turning into **Cancel** and dropping the reading. Pausing during the silence while a page turns, or while the first passage of a document is still generating, no longer loses your place; document playback crosses page breaks and keeps going.

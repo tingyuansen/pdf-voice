@@ -1,6 +1,6 @@
 {
   "name": "paper-voice",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "private": true,
   "description": "Read and listen to PDF papers: a reflowed reading view with equations and figures as typeset, continuous PDF pages, and Cartesia or OpenAI text-to-speech with highlighted passages.",
   "license": "MIT",
