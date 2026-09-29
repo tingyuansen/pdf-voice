@@ -1,6 +1,6 @@
 "use client";
 import {Fragment,useEffect,useRef,useState,type ReactNode} from 'react';
-import {Headphones,Upload,RefreshCw,Play,Pause,SkipBack,SkipForward,ChevronLeft,ChevronRight,FileText,Moon,Sun,PanelLeft,BookOpen,Minus,Plus,Maximize,Minimize} from 'lucide-react';
+import {Headphones,Upload,RefreshCw,Play,Pause,SkipBack,SkipForward,ChevronLeft,ChevronRight,FileText,Moon,Sun,PanelLeft,BookOpen,Minus,Plus,Maximize,Minimize,Lock} from 'lucide-react';
 import type {Item,Passage} from '../lib/passages';
 import {snapSelection,type SelectedFragment} from '../lib/selection';
 import {PdfSurface} from './pdf-surface';
@@ -24,7 +24,7 @@ const AUDIO_BUDGET=256*1024*1024;
 type Clip={player:HTMLAudioElement;bytes:number};
 // Chromium's File System Access API hands back a handle that can re-read the
 // file after it changes on disk; other browsers only get a snapshot File.
-type PickedFile={file:File;handle?:FileSystemFileHandle};
+type PickedFile={file:File;handle?:FileSystemFileHandle;password?:string};
 type FilePicker={showOpenFilePicker?:(options:{types:{description:string;accept:Record<string,string[]>}[]})=>Promise<FileSystemFileHandle[]>};
 type HandleItem=DataTransferItem&{getAsFileSystemHandle?:()=>Promise<FileSystemHandle|null>};
 // Running heads and page numbers: text repeated in the top or bottom row of
@@ -59,6 +59,8 @@ const fallbackEngine:SpeechEngine={id:'openai',name:'OpenAI',model:'gpt-4o-mini-
 export default function Home(){
  const [doc,setDoc]=useState<PDFDocumentProxy|null>(null),[name,setName]=useState(''),[page,setPage]=useState(1),[data,setData]=useState<PageData|null>(null),[index,setIndex]=useState(0),[mode,setMode]=useState<'idle'|'loading'|'playing'|'paused'>('idle'),[error,setError]=useState(''),[loading,setLoading]=useState(false),[voice,setVoice]=useState(''),[keys,setKeys]=useState<Record<string,string>>({}),[engines,setEngines]=useState<SpeechEngine[]>([]),[engineId,setEngineId]=useState('openai'),[speed,setSpeed]=useState(1),[drag,setDrag]=useState(false);
  const [cleanMode,setCleanMode]=useState(false);
+ // An encrypted PDF waits here for its open password; retry marks a rejected one.
+ const [locked,setLocked]=useState<{source:PickedFile;keepPage:boolean;retry:boolean}|null>(null),[password,setPassword]=useState('');
  const cleanButton=useRef<HTMLButtonElement>(null),exitCleanButton=useRef<HTMLButtonElement>(null);
  function enterClean(){setCleanMode(true);requestAnimationFrame(()=>exitCleanButton.current?.focus());}
  function exitClean(){setCleanMode(false);requestAnimationFrame(()=>cleanButton.current?.focus());}
@@ -102,15 +104,15 @@ export default function Home(){
  // Re-read the open file from disk (a revised export, say), keeping the page.
  async function reload(){
   const previous=picked.current;if(!previous)return;
-  try{await load({file:previous.handle?await previous.handle.getFile():previous.file,handle:previous.handle},true);}
+  try{await load({file:previous.handle?await previous.handle.getFile():previous.file,handle:previous.handle,password:previous.password},true);}
   catch(e){setError(e instanceof Error?e.message:'Could not re-read this PDF.');}
  }
  async function load(source:PickedFile,keepPage=false){
-  const id=++loadId.current;stop();auto.current=false;setSelection(null);selectionRef.current=null;setLoading(true);setError('');setData(null);setDoc(null);
+  const id=++loadId.current;stop();auto.current=false;setLocked(null);setSelection(null);selectionRef.current=null;setLoading(true);setError('');setData(null);setDoc(null);
   try{const pdfjs=await import('pdfjs-dist');pdfjs.GlobalWorkerOptions.workerSrc='/pdf.worker.min.mjs';
    if(source.file.size>100*1024*1024)throw Error('Please choose a PDF smaller than 100 MB.');
    const bytes=await source.file.arrayBuffer().catch(e=>{throw e instanceof DOMException&&e.name==='NotReadableError'?Error('The file changed on disk and this browser cannot re-read it. Use Open PDF to load the new version.'):e;});
-   const next=await pdfjs.getDocument({data:bytes,cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/'}).promise;
+   const next=await pdfjs.getDocument({data:bytes,password:source.password,cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/'}).promise;
    if(id!==loadId.current){await next.loadingTask.destroy();return;}await docRef.current?.loadingTask.destroy();docRef.current=next;
    const vocabulary=new Set<string>(),sources=new Map<number,PageSource>();
    for(let n=1;n<=next.numPages;n++){
@@ -126,7 +128,7 @@ export default function Home(){
    picked.current=source;setName(source.file.name);setPage(target);setIndex(0);pendingScroll.current=target;jumpTo(target);setMaterialized(Math.min(next.numPages,READER_BATCH));setDoc(next);
    // A freshly opened document starts as a clean page; a reload keeps the room as it is.
    if(!keepPage&&!cleanMode)enterClean();
-  }catch(e){if(id===loadId.current)setError(e instanceof Error?e.message:'Could not open this PDF.');}finally{if(id===loadId.current)setLoading(false);}
+  }catch(e){if(id===loadId.current){if(e instanceof Error&&e.name==='PasswordException')setLocked({source,keepPage,retry:source.password!==undefined});else setError(e instanceof Error?e.message:'Could not open this PDF.');}}finally{if(id===loadId.current)setLoading(false);}
  }
  useEffect(()=>{const buffer=cache.current;fetch('/api/speech').then(r=>r.json() as Promise<{providers:SpeechEngine[]}>).then(d=>{
   let saved:{engine?:string;voice?:string}={};try{saved=JSON.parse(localStorage.getItem('paper-voice-speech')||'{}');}catch{}
@@ -330,6 +332,6 @@ export default function Home(){
  {selectedBoxes.map((b,i)=><div key={i} ref={speakingSelection&&i===0?activeBox:undefined} className={speakingSelection?'highlight':'highlight selection-highlight'} style={{left:b.left+'%',top:b.top+'%',width:b.width+'%',height:b.height+'%'}}/>)}
  </div></article></div>}
  {loading&&<p role="status">Preparing document…</p>}{!loading&&data&&!data.passages.length&&view==='pdf'&&<p>This page has no selectable text. Scanned pages need OCR before they can be read aloud.</p>}
- <div className="transport"><button aria-label="Previous passage" disabled={!queue||index===0} onClick={()=>selectPassage(index-1)}><SkipBack size={18}/></button><button className="primary" onClick={toggle} disabled={mode!=='loading'&&(!passage||loading)}>{mode==='playing'||mode==='loading'?<Pause size={19}/>:<Play size={19}/>} {mode==='playing'||mode==='loading'?'Pause':mode==='paused'?'Resume':'Listen'}</button><button aria-label="Next passage" disabled={!queue||index>=queue.length-1} onClick={()=>selectPassage(index+1)}><SkipForward size={18}/></button><div role="status">{mode==='loading'?'Preparing your audio…':mode==='playing'?'Reading aloud':mode==='paused'?'Paused':'Ready when you are'}<small>Passage {queue?.length?index+1:0} of {queue?.length||0} · {scope==='selection'?'Selected text':scope==='page'?'This page only':'Entire document'}</small></div></div><div className="progress"><i style={{width:`${queue?.length?(index+1)/queue.length*100:0}%`}}/></div></>:<div className="empty"><Upload size={36}/><h2>{loading?'Opening your document…':'Drop into a good read.'}</h2><p>Drop a PDF anywhere, or use Open PDF above.</p></div>}
+ <div className="transport"><button aria-label="Previous passage" disabled={!queue||index===0} onClick={()=>selectPassage(index-1)}><SkipBack size={18}/></button><button className="primary" onClick={toggle} disabled={mode!=='loading'&&(!passage||loading)}>{mode==='playing'||mode==='loading'?<Pause size={19}/>:<Play size={19}/>} {mode==='playing'||mode==='loading'?'Pause':mode==='paused'?'Resume':'Listen'}</button><button aria-label="Next passage" disabled={!queue||index>=queue.length-1} onClick={()=>selectPassage(index+1)}><SkipForward size={18}/></button><div role="status">{mode==='loading'?'Preparing your audio…':mode==='playing'?'Reading aloud':mode==='paused'?'Paused':'Ready when you are'}<small>Passage {queue?.length?index+1:0} of {queue?.length||0} · {scope==='selection'?'Selected text':scope==='page'?'This page only':'Entire document'}</small></div></div><div className="progress"><i style={{width:`${queue?.length?(index+1)/queue.length*100:0}%`}}/></div></>:<div className="empty">{locked&&!loading?<form className="unlock" onSubmit={e=>{e.preventDefault();void load({...locked.source,password},locked.keepPage);setPassword('');}}><Lock size={36}/><h2>This PDF is password protected.</h2><label>Password for {locked.source.file.name}<input type="password" autoComplete="off" autoFocus value={password} onChange={e=>setPassword(e.target.value)}/></label>{locked.retry&&<p role="alert" className="error">That password did not open the document. Try again.</p>}<button className="primary" type="submit" disabled={!password}>Unlock</button><small>The password is kept in memory only while this document is open, and is never saved.</small></form>:<><Upload size={36}/><h2>{loading?'Opening your document…':'Drop into a good read.'}</h2><p>Drop a PDF anywhere, or use Open PDF above.</p></>}</div>}
  </section></div>{cleanMode&&<div className="clean-controls" role="group" aria-label="Reading controls"><button className="clean-voice" disabled={mode!=='loading'&&(!passage||loading)} onClick={toggle} aria-label={mode==='playing'||mode==='loading'?'Pause voice':'Resume/start voice'} title={mode==='playing'||mode==='loading'?'Pause voice':'Resume or start voice'}>{mode==='playing'||mode==='loading'?<Pause size={20}/>:<Play size={20}/>}</button><span className="clean-page" aria-hidden="true">{doc?page+'/'+doc.numPages:''}</span><button onClick={()=>void openPicker()} aria-label="Open another PDF" title="Open another PDF (a dropped PDF works too)"><Upload size={18}/></button><button disabled={!doc||loading} onClick={()=>void reload()} aria-label="Reload the PDF from disk" title="Reload the PDF from disk to pick up changes"><RefreshCw size={18}/></button><button className="theme-toggle" type="button" aria-label={dark?'Switch to light mode':'Switch to dark mode'} aria-pressed={dark} title={dark?'Switch to light mode':'Switch to dark mode'} onClick={toggleTheme}>{dark?<Sun size={18}/>:<Moon size={18}/>}</button><button ref={exitCleanButton} onClick={exitClean} aria-label="Exit clean mode" title="Show controls (Esc)"><Minimize size={18}/></button><span className="sr-only" role="status">{mode==='loading'?'Preparing audio':mode==='playing'?'Reading aloud':mode==='paused'?'Paused':'Ready'}. Page {page} of {doc?.numPages}. Use left and right arrow keys to change pages; drop a PDF anywhere to open it.</span></div>}</main>
 }

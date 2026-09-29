@@ -2,6 +2,10 @@
 
 Versions of the macOS app. Each entry describes what changed for readers; the README describes how the reader works today.
 
+## 1.7.2 — password-protected PDFs
+
+A PDF that needs a password to open now asks for it instead of failing with "No password given". Enter the password in the field that appears and choose **Unlock**; a wrong password is reported and the field stays open for another try. The password is held in memory only while the document is open, so **Reload** re-reads a protected file without asking again, and it is never written to disk.
+
 ## 1.7.1 — page counter in clean mode, restart from the beginning
 
 Clean mode shows the page you are on out of the document's total, beside the floating voice control; it follows the scroll and the reader alike.
