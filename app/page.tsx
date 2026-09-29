@@ -112,7 +112,7 @@ export default function Home(){
   try{const pdfjs=await import('pdfjs-dist');pdfjs.GlobalWorkerOptions.workerSrc='/pdf.worker.min.mjs';
    if(source.file.size>100*1024*1024)throw Error('Please choose a PDF smaller than 100 MB.');
    const bytes=await source.file.arrayBuffer().catch(e=>{throw e instanceof DOMException&&e.name==='NotReadableError'?Error('The file changed on disk and this browser cannot re-read it. Use Open PDF to load the new version.'):e;});
-   const next=await pdfjs.getDocument({data:bytes,password:source.password,cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/'}).promise;
+   const next=await pdfjs.getDocument({data:bytes,password:source.password,cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/',wasmUrl:'/wasm/'}).promise;
    if(id!==loadId.current){await next.loadingTask.destroy();return;}await docRef.current?.loadingTask.destroy();docRef.current=next;
    const vocabulary=new Set<string>(),sources=new Map<number,PageSource>();
    for(let n=1;n<=next.numPages;n++){

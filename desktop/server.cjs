@@ -10,7 +10,7 @@ const providers={
  openai:{name:'OpenAI',model:'gpt-4o-mini-tts',variable:'OPENAI',voices:['marin','cedar','coral','alloy','ash','ballad','echo','fable','nova','onyx','sage','shimmer','verse'].map(v=>[v,v[0].toUpperCase()+v.slice(1)])},
  cartesia:{name:'Cartesia',model:'sonic-3.6',variable:'SONIC',voices:[['694f9389-aac1-45b6-b726-9d9369183238','Sarah'],['b24f41fd-00a3-4cd8-992a-a0c9f13f3ef1','Clive'],['aa2cafe9-97ba-4052-ac3c-875000f95212','Zander'],['5568a7df-e5ab-4442-9fae-2e9ba1b15ad8','Quentin'],['8c254787-4eb4-4577-bd3d-fb3c273baea2','Rowan'],['47c38ca4-5f35-497b-b1a3-415245fb35e1','Daniel'],['ef191366-f52f-447a-a398-ed8c0f2943a1','Archie'],['a33f7a4c-100f-41cf-a1fd-5822e8fc253f','Lauren'],['7348f896-8516-4382-9c8f-ad2aee1ffedc','Naledi'],['273f9ef7-9fc2-4def-88bb-ab108c6249ca','Julia'],['db6b0ed5-d5d3-463d-ae85-518a07d3c2b4','Skylar'],['62ae83ad-4f6a-430b-af41-a9bede9286ca','Gemma'],['9626c31c-bec5-4cca-baa8-f8ba9e84c8bc','Jacqueline'],['d1d9c946-7cfc-4378-85a4-07d09827cb7e','Jolene']]},
 };
-const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.pdf':'application/pdf','.bcmap':'application/octet-stream','.ttf':'font/ttf','.pfb':'application/octet-stream'};
+const mime={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.pdf':'application/pdf','.bcmap':'application/octet-stream','.ttf':'font/ttf','.pfb':'application/octet-stream','.wasm':'application/wasm'};
 function configuredKey(provider){try{const value=parseEnv(fs.readFileSync(path.join(os.homedir(),'.env'),'utf8'))[providers[provider].variable];return typeof value==='string'?value.trim():'';}catch{return '';}}
 // Cartesia caps concurrent generations per account (2 on the free plan) and counts one until its audio has been fully
 // streamed; the reader requests up to three passages at once, so requests queue here and hold a slot until the response is sent.
@@ -61,7 +61,7 @@ async function startServer(root,preferredPort=0){
    if(req.method!=='GET'&&req.method!=='HEAD')return json(405,{error:'Method not allowed.'});
    const file=path.resolve(root,'.'+decodeURIComponent(pathname==='/'?'/index.html':pathname));if(!file.startsWith(root+path.sep))return json(403,{error:'Invalid path.'});
    const stat=await fs.promises.stat(file).catch(()=>null);if(!stat?.isFile())return json(404,{error:'File not found.'});
-   res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Content-Length':stat.size,'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self' data: blob:; object-src 'none'; frame-ancestors 'none'"});
+   res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Content-Length':stat.size,'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self' data: blob:; object-src 'none'; frame-ancestors 'none'"});
    if(req.method==='HEAD')return res.end();fs.createReadStream(file).on('error',()=>res.destroy()).pipe(res);
   }catch{if(!res.headersSent)json(500,{error:'The request failed. Please try again.'});else res.destroy();}
  });

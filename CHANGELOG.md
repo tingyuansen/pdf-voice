@@ -2,6 +2,10 @@
 
 Versions of the macOS app. Each entry describes what changed for readers; the README describes how the reader works today.
 
+## 1.7.3 — scanned and JBIG2 images
+
+Pages that contain JBIG2 or JPEG 2000 images — common in scanned and fax-compressed documents — now display. PDF.js decodes these with WebAssembly modules that the app did not ship or point it to, so the first such image on a page stopped its rendering and the page stayed blank even though its text could still be read aloud. The decoders are now bundled beside the CMaps and fonts, and the app's local server allows PDF.js to compile them.
+
 ## 1.7.2 — password-protected PDFs
 
 A PDF that needs a password to open now asks for it instead of failing with "No password given". Enter the password in the field that appears and choose **Unlock**; a wrong password is reported and the field stays open for another try. The password is held in memory only while the document is open, so **Reload** re-reads a protected file without asking again, and it is never written to disk.

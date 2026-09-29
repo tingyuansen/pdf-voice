@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 const root=process.cwd();
-for(const name of ['pdf.worker.min.mjs','cmaps','standard_fonts'])fs.cpSync(path.join(root,'public',name),path.join(root,'desktop-dist',name),{recursive:true});
+for(const name of ['pdf.worker.min.mjs','cmaps','standard_fonts','wasm'])fs.cpSync(path.join(root,'public',name),path.join(root,'desktop-dist',name),{recursive:true});
 const staging=path.join(root,'work','desktop-package');fs.mkdirSync(staging,{recursive:true});
 fs.rmSync(path.join(staging,'desktop-dist'),{recursive:true,force:true});
 fs.cpSync(path.join(root,'desktop-dist'),path.join(staging,'desktop-dist'),{recursive:true});

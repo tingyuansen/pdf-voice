@@ -37,7 +37,7 @@ npm run desktop:dev        # …and launch it in Electron
 npm run desktop:package    # …and build the DMG into work/mac-release/
 ```
 
-The app bundles Electron, the built reader, PDF.js worker, CMaps and standard fonts, and a small local HTTP server that serves the reader on a loopback port and proxies speech requests. It reads `SONIC` and `OPENAI` from `~/.env` at request time; documents are opened with Open PDF or by dropping them onto the window. The DMG is ad-hoc signed for local use; Developer ID signing and notarization are not configured.
+The app bundles Electron, the built reader, PDF.js worker, CMaps, standard fonts and WebAssembly image decoders, and a small local HTTP server that serves the reader on a loopback port and proxies speech requests. It reads `SONIC` and `OPENAI` from `~/.env` at request time; documents are opened with Open PDF or by dropping them onto the window. The DMG is ad-hoc signed for local use; Developer ID signing and notarization are not configured.
 
 ## Checks
 
@@ -57,7 +57,7 @@ app/          React reader (page.tsx), continuous PDF surface, styles, worker AP
 lib/          reflow.ts (layout analysis), page-crop.ts (equation/figure rasteriser),
               phrase-boundaries.ts, passages.ts, number-runs.ts, speech-buffer.ts, playback.ts
 desktop/      Electron main process, local server, packaging config, icon sources
-public/       PDF.js worker, CMaps and standard fonts served to the reader
+public/       PDF.js worker, CMaps, standard fonts and image decoders served to the reader
 scripts/      local key import for the dev worker, CI install helper
 tests/        verification scripts run by npm test
 work/         (ignored) packaging output, logs and scratch

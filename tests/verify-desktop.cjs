@@ -3,6 +3,7 @@ const {startServer}=require('../desktop/server.cjs');
 (async()=>{const {server,origin}=await startServer(path.resolve('desktop-dist'));try{
  const page=await fetch(origin);assert.equal(page.status,200);assert((await page.text()).includes('/assets/'));
  assert.equal((await fetch(origin+'/pdf.worker.min.mjs')).status,200);
+ const jbig2=await fetch(origin+'/wasm/jbig2.wasm');assert.equal(jbig2.status,200);assert.equal(jbig2.headers.get('content-type'),'application/wasm');assert(jbig2.headers.get('content-security-policy').includes("'wasm-unsafe-eval'"),'PDF.js may compile its image decoders');
  const state=await fetch(origin+'/api/speech').then(r=>r.json());assert(!/sk-|sk_car_/.test(JSON.stringify(state)));
  const cartesia=state.providers.find(p=>p.id==='cartesia'),openai=state.providers.find(p=>p.id==='openai');
  assert.equal(cartesia.configured,true);assert.equal(cartesia.model,'sonic-3.6');assert(cartesia.voices.length>=10&&cartesia.voices.every(v=>v.id&&v.name));
@@ -16,5 +17,5 @@ const {startServer}=require('../desktop/server.cjs');
  // Three passages are requested at once during playback; the server must serialise them under Cartesia's concurrency cap instead of surfacing 429s.
  const burst=await Promise.all([0,1,2].map(i=>fetch(origin+'/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:'cartesia',text:`Concurrent passage number ${i+1}.`,voice:cartesia.voices[0].id})}).then(async r=>{const bytes=(await r.arrayBuffer()).byteLength;return r.status===200&&bytes>1000?200:r.status;})));assert.deepEqual(burst,[200,200,200]);
  assert(!fs.existsSync('work/desktop-package/.env'));assert(!fs.existsSync('work/desktop-package/desktop-dist/examples'));assert.equal((await fetch(origin+'/examples/manuscript.pdf')).status,404,'no document is served from the home folder');
- console.log('PASS: packaged assets, Cartesia and OpenAI key lookup, request validation, foreign origin protection, live speech, concurrency limiting, no bundled or home-folder manuscript.');
+ console.log('PASS: packaged assets and image decoders, Cartesia and OpenAI key lookup, request validation, foreign origin protection, live speech, concurrency limiting, no bundled or home-folder manuscript.');
 }finally{server.close();server.closeAllConnections();}})().catch(e=>{console.error(e);process.exitCode=1;});
