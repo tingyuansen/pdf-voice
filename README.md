@@ -1,6 +1,6 @@
 # Paper Voice
 
-Read and listen to PDF papers. Paper Voice opens a PDF locally, reads it aloud with Cartesia Sonic 3.6 or OpenAI text-to-speech while highlighting the passage being spoken, and offers a reflowed **Reading view** — a single scrolling column in which display equations, figures and tables appear exactly as typeset in the paper rather than as the scrambled text of their text layer.
+Read and listen to PDF papers. Paper Voice opens a PDF locally, reads it aloud with ElevenLabs Flash v2.5 or OpenAI text-to-speech while highlighting the passage being spoken, and offers a reflowed **Reading view** — a single scrolling column in which display equations, figures and tables appear exactly as typeset in the paper rather than as the scrambled text of their text layer.
 
 It runs as a macOS desktop app (Electron, Apple Silicon) and as a web app served by a Cloudflare worker. Both use the same React reader.
 
@@ -10,7 +10,7 @@ It runs as a macOS desktop app (Electron, Apple Silicon) and as a web app served
 
 - **Two views of the same document.** *PDF view* shows the pages as printed, scrolling continuously, with fit-width and 50–300 % zoom (buttons, trackpad pinch, or ctrl/⌘ + scroll) and sharp rendering at the display's pixel ratio. *Reading view* reflows the text into one comfortable column (18–40 px) that runs across page boundaries. Itemize and enumerate items are kept whole: a wrapped item is one paragraph, and every marked line starts a new item.
 - **Equations, figures and tables as set in the paper.** Reading view detects display equations from their labels and geometry, and figures and tables from their captions, then rasterises those regions from the PDF page and shows them inline at the reading size. Inline sub- and superscripts are rendered as such. Running heads, page numbers and draft line numbers are recognised and dropped.
-- **Listen.** Two speech engines, switchable in the sidebar: OpenAI `gpt-4o-mini-tts` (the default; 13 voices, roughly a quarter of the price per character) and Cartesia `sonic-3.6` (14 voices, the more natural reader). Playback speed 0.75–2×. Read a selection, the current page, or the whole document; playback buffers ahead, continues across pages, and the passage being read is highlighted in either view. The pause button pauses at any moment — including while a passage is still being prepared, where the clip waits ready and resumes — so a slow first passage or the silence at a page turn no longer risks dropping the reading. Every clip generated in a session is kept in memory (up to 256 MB, oldest evicted first), so replaying a passage, re-reading an earlier page, or reloading a revised PDF only sends text that has not been spoken yet; nothing is written to disk and the store empties when the app closes. Equations are announced by number rather than read symbol by symbol; figures are skipped and their captions read.
+- **Listen.** Two speech engines, switchable in the sidebar: OpenAI `gpt-4o-mini-tts` (the default; 13 voices) and ElevenLabs `eleven_flash_v2_5` (six standard voices, with American-accented Sarah as the default, also an automatic backup when OpenAI fails). Playback speed 0.75–2×. Read a selection, the current page, or from the current page to the end; playback buffers roughly 30 seconds ahead (up to six passages), continues across pages, and the passage being read is highlighted in either view. The pause button pauses at any moment — including while a passage is still being prepared, where the clip waits ready and resumes — so a slow first passage or the silence at a page turn no longer risks dropping the reading. Turn **Follow reading** off to scroll freely while listening; it defaults to on and remembers your preference. With ElevenLabs configured, OpenAI gets one attempt with a 12-second whole-download deadline, then hands off immediately on failure. ElevenLabs gets one 20-second attempt; if both fail, playback stops with a retry message. Without a backup, the selected provider retries once with a 12-second deadline per attempt. Only the current passage owns an audio player; downloaded clips are cached as blobs so long sessions do not accumulate media decoders. If the playback clock stops for eight seconds, the app recreates the player once and resumes the cached clip at its last position. Persistent stalls produce a retry message, also visible in clean mode. Every clip generated in a session is kept in memory (up to 256 MB, oldest evicted first), so replaying a passage, re-reading an earlier page, or reloading a revised PDF only sends text that has not been spoken yet; nothing is written to disk and the store empties when the app closes. Equations are announced by number rather than read symbol by symbol; figures are skipped and their captions read.
 - **Clean mode** is the default once a document opens: every control hidden except a small floating group — voice, Open PDF, reload, and a light/dark toggle. Dropping a PDF anywhere still opens it; Esc or the restore button brings the full window back. Dark mode inverts the page with hues preserved, so figures keep their colours.
 - **Selections snap to sentences.** A drag is cut at the page's own passage boundaries: any sentence it covers by at least half is read verbatim, so overlapping or superset selections reuse the clips already generated, in either view; a short phrase inside a sentence is read as dragged. Selecting while listening leaves playback running and queues the selection for **Read selection**.
 - **Reload.** A **Reload** button re-reads the open file from disk and keeps your page, so a re-exported paper is picked up without hunting for it again. The desktop app and Chromium browsers re-read the file through a file handle; other browsers hold only a snapshot and ask you to open the new version instead.
@@ -27,7 +27,7 @@ npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:5173 and drop a PDF anywhere, or use **Open PDF**. `predev` copies `SONIC` (a Cartesia key) and `OPENAI` from `~/.env` into the git-ignored `.dev.vars`. An engine without a configured key offers a password field for a session-only key. `npm run build` produces the deployable worker in `dist/`.
+Open http://127.0.0.1:5173 and drop a PDF anywhere, or use **Open PDF**. `predev` copies `ELEVENLABS` (an ElevenLabs key) and `OPENAI` from `~/.env` into the git-ignored `.dev.vars`. An engine without a configured key offers a password field for a session-only key. `npm run build` produces the deployable worker in `dist/`.
 
 ## Build the macOS app
 
@@ -37,13 +37,14 @@ npm run desktop:dev        # …and launch it in Electron
 npm run desktop:package    # …and build the DMG into work/mac-release/
 ```
 
-The app bundles Electron, the built reader, PDF.js worker, CMaps, standard fonts and WebAssembly image decoders, and a small local HTTP server that serves the reader on a loopback port and proxies speech requests. It reads `SONIC` and `OPENAI` from `~/.env` at request time; documents are opened with Open PDF or by dropping them onto the window. The DMG is ad-hoc signed for local use; Developer ID signing and notarization are not configured.
+The app bundles Electron, the built reader, PDF.js worker, CMaps, standard fonts and WebAssembly image decoders, and a small local HTTP server that serves the reader on a loopback port and proxies speech requests. It reads `ELEVENLABS` and `OPENAI` from `~/.env` at request time; documents are opened with Open PDF or by dropping them onto the window. The DMG is ad-hoc signed for local use; Developer ID signing and notarization are not configured.
 
 ## Checks
 
 ```sh
 npm test            # layout, phrase, decimal, buffer, selection and playback checks (pure Node)
-npm run test:desktop  # packaged local server: assets, key handling, one live speech request
+npm run test:desktop  # local server: assets, key handling, live speech and concurrency
+npm run test:ui       # Electron: zoom anchor, current-page start, fallback, free scrolling
 npx tsc --noEmit
 npm run lint
 ```
@@ -67,4 +68,4 @@ How a page becomes Reading view: text items from PDF.js are grouped into lines b
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Speech is generated by the Cartesia or OpenAI API and billed to your account; see [Cartesia pricing](https://cartesia.ai/pricing) and [OpenAI pricing](https://developers.openai.com/api/docs/pricing).
+MIT — see [LICENSE](LICENSE). Speech is generated by the ElevenLabs or OpenAI API and billed to your account; see [ElevenLabs pricing](https://elevenlabs.io/pricing/api) and [OpenAI pricing](https://developers.openai.com/api/docs/pricing).

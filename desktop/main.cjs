@@ -8,7 +8,7 @@ app.setName('Paper Voice');
 if(!app.requestSingleInstanceLock()){app.quit();}else{
  app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.focus();}});
  async function openWindow(){
-  window=new BrowserWindow({width:1280,height:920,minWidth:640,minHeight:600,title:'Paper Voice',backgroundColor:'#101722',show:false,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
+  window=new BrowserWindow({width:1280,height:920,minWidth:640,minHeight:600,title:'Paper Voice',backgroundColor:'#101722',show:false,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,backgroundThrottling:false}});
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   window.webContents.on('will-navigate',(event,url)=>{if(new URL(url).origin!==origin)event.preventDefault();});
   // Only read access to a single file is granted: the File System Access picker and dropped files return handles Reload can re-read after the PDF changes on disk.

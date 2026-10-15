@@ -2,6 +2,16 @@
 
 Versions of the macOS app. Each entry describes what changed for readers; the README describes how the reader works today.
 
+## 1.7.4–1.7.6 — ElevenLabs speech, automatic fallback, steadier playback
+
+ElevenLabs Flash v2.5 replaces Cartesia as the second speech engine (key `ELEVENLABS` in `~/.env`; six standard voices, American-accented Sarah by default). OpenAI remains the default, and when ElevenLabs is configured it takes over automatically if an OpenAI passage fails: OpenAI gets one attempt with a 12-second deadline, ElevenLabs one 20-second attempt, and if both fail playback stops with a retry message instead of looping. The app keeps ElevenLabs generation within two concurrent requests.
+
+Playback buffers about 30 seconds ahead (up to six passages). Only the current passage owns an audio player, and downloaded clips are kept as blobs, so long sessions no longer accumulate media decoders. If the playback clock stops for eight seconds, the player is recreated once and the clip resumes where it stopped; a persistent stall shows a retry message, also in clean mode. Playback is no longer throttled while the window is in the background.
+
+**Read entire document** becomes **From this page to the end**, starting at the current page. **Follow reading** can be turned off to scroll freely while listening, and the choice is remembered.
+
+Zooming in PDF view keeps the same point of the page under the reading position instead of drifting. A stacked fraction followed by a separately extracted comma is now read as one equation rather than as fragments.
+
 ## 1.7.3 — scanned and JBIG2 images
 
 Pages that contain JBIG2 or JPEG 2000 images — common in scanned and fax-compressed documents — now display. PDF.js decodes these with WebAssembly modules that the app did not ship or point it to, so the first such image on a page stopped its rendering and the page stayed blank even though its text could still be read aloud. The decoders are now bundled beside the CMaps and fonts, and the app's local server allows PDF.js to compile them.

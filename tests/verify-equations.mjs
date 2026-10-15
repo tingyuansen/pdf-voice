@@ -37,6 +37,22 @@ assert.equal(new Set(f.passages.flatMap(p=>p.indices)).size,figureItems.length,'
 // Running text that merely begins with a figure reference is not a caption.
 const mention=[text('The construction is compared with the earlier method in',700),text('Figure 1. The formula resembles a pixel difference, but it',688),text('is not one, because the curves subtracted are cumulative.',676),text('Both are drawn for the same pair of stars in the figure.',664)];
 assert(reflowItems(mention).blocks.every(b=>b.kind==='paragraph'),'no caption inside running text');
+// An unnumbered fraction with a detached comma (common in notebook PDFs)
+// must produce one equation cue, not three formula/punctuation requests.
+const fraction=[
+ item('A full width paragraph introduces the following correlation between two independent measurements.',43,674,526,11,true),
+ item('The expression below defines their normalized covariance.',43,661,448,11,true),
+ item('𝜌',235,634,6,11),item('𝑖𝑗,𝑘ℓ',241,632,18,7.6),item('=',262,634,8,11),
+ item('Cov(𝑋𝑖𝑗, 𝑋𝑘ℓ)',290,643,67,11,true),
+ item('√Var(𝑋𝑖𝑗)Var(𝑋𝑘ℓ)',275,623,97,11,true),item(',',374,634,3,11,true),
+ item('where',43,601,28,11,true),
+ item('The terms describe the covariance and the variance of the measured quantities.',43,580,526,11,true),
+];
+const fractionResult=reflowItems(fraction);
+assert.equal(fractionResult.blocks.filter(b=>b.kind==='equation').length,1);
+assert(fractionResult.passages.some(p=>p.text==='Equation.'));
+assert(!fractionResult.passages.some(p=>p.text===','||p.text.includes('√')));
+assert.equal(new Set(fractionResult.passages.flatMap(p=>p.indices)).size,fraction.length,'equation fragments and comma retain their highlight mappings');
 // The bundled manuscript: ten numbered displays, ten figures and one table, no false positives.
 if(requireSample('manuscript equation and figure census')){
 const task=getDocument({data:new Uint8Array(fs.readFileSync(SAMPLE))});const doc=await task.promise;const labels=[],figures=[];let unnumbered=0,strays=0;

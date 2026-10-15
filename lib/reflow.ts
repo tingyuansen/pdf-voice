@@ -108,7 +108,9 @@ export function reflowItems(items:Item[],documentWords:ReadonlySet<string>=new S
  // Unnumbered displays are short centred lines carrying relations or operators,
  // set among running text rather than among the tick labels of a figure.
  const nearText=(l:Line)=>{const c=columnOf(l);return lines.some(o=>o!==l&&o.end-o.x>typicalWidth*.6&&atMargin(o)&&Math.abs(o.y-l.y)<body*5&&columnOf(o)===c);};
- const lonelyRow=(l:Line)=>!lines.some(o=>o!==l&&Math.abs(o.y-l.y)<body*.3&&(o.end<l.x||o.x>l.end)&&width(o)<typicalWidth*.6&&!atMargin(o));
+ // A trailing comma may be extracted separately from a stacked fraction.
+ // It belongs to the display, rather than disqualifying it as a second column.
+ const lonelyRow=(l:Line)=>!lines.some(o=>o!==l&&Math.abs(o.y-l.y)<body*.3&&(o.end<l.x||o.x>l.end)&&width(o)<typicalWidth*.6&&!atMargin(o)&&!/^\s*[,.;:!?]+\s*$/.test(lineText(o)));
  const centeredMath=(l:Line,n:number)=>{
   if(l.rotated||l.figure||atMargin(l)||width(l)>typicalWidth*.8)return false;const text=lineText(l);
   if(!STRONG_MATH.test(text)||!nearText(l)||!lonelyRow(l)||besideText[n])return false;

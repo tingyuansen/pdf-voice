@@ -1,5 +1,5 @@
 "use client";
-import {useEffect,useRef,useState,type RefObject,type ReactNode} from 'react';
+import {useEffect,useLayoutEffect,useRef,useState,type RefObject,type ReactNode} from 'react';
 import type {PDFDocumentProxy,TextLayer} from 'pdfjs-dist';
 import {rasterSize} from '../lib/reader';
 type Jump={page:number;token:number};
@@ -7,11 +7,33 @@ type Jump={page:number;token:number};
 // within about a screen of the viewport hold a rendered canvas and text layer.
 export function PdfSurface({doc,aspects,zoom,onZoom,textRef,onSelect,onVisiblePage,overlay,jump}:{doc:PDFDocumentProxy;aspects:number[];zoom:number;onZoom:(factor:number)=>void;textRef:RefObject<HTMLDivElement|null>;onSelect:()=>void;onVisiblePage:(page:number)=>void;overlay:(page:number)=>ReactNode;jump:Jump|null}){
  const scroller=useRef<HTMLDivElement>(null),frame=useRef(0);
+ const anchor=useRef<{page:number;x:number;y:number;screenX:number;screenY:number}|null>(null),zoomGuard=useRef(0);
+ function rememberAnchor(){
+  const root=scroller.current;if(!root)return;
+  const bounds=root.getBoundingClientRect(),screenY=root.clientHeight*.22,screenX=root.clientWidth/2;
+  const probe=bounds.top+screenY;
+  const pages=Array.from(root.querySelectorAll<HTMLElement>('[data-page]'));
+  const element=pages.find(p=>p.getBoundingClientRect().bottom>probe)||pages.at(-1);if(!element)return;
+  const rect=element.getBoundingClientRect();
+  anchor.current={page:Number(element.dataset.page),x:(bounds.left+screenX-rect.left)/rect.width,y:(probe-rect.top)/rect.height,screenX,screenY};
+ }
  const [width,setWidth]=useState(800),[near,setNear]=useState<ReadonlySet<number>>(new Set([1]));
  useEffect(()=>{const node=scroller.current;if(!node)return;const update=()=>setWidth(Math.max(200,node.clientWidth-32));update();const observer=new ResizeObserver(update);observer.observe(node);return()=>observer.disconnect();},[]);
  // Trackpad pinch arrives as a wheel event with a control modifier; the pages
  // stay a centred column, so the whole surface zooms by the pinched factor.
- useEffect(()=>{const node=scroller.current;if(!node)return;const onWheel=(event:WheelEvent)=>{if(!event.ctrlKey&&!event.metaKey)return;event.preventDefault();onZoom(Math.exp(-event.deltaY*.01));};node.addEventListener('wheel',onWheel,{passive:false});return()=>node.removeEventListener('wheel',onWheel);},[onZoom]);
+ useEffect(()=>{const node=scroller.current;if(!node)return;const onWheel=(event:WheelEvent)=>{if(!event.ctrlKey&&!event.metaKey)return;event.preventDefault();rememberAnchor();zoomGuard.current=Date.now()+250;onZoom(Math.exp(-event.deltaY*.01));};node.addEventListener('wheel',onWheel,{passive:false});return()=>node.removeEventListener('wheel',onWheel);},[onZoom]);
+ // Scaling earlier pages changes their combined height. Keep the same point
+ // on the visible page under the reading probe before the browser paints.
+ useLayoutEffect(()=>{
+  const root=scroller.current,a=anchor.current;
+  if(root&&a){const element=root.querySelector<HTMLElement>(`[data-page="${a.page}"]`);if(element){
+   const bounds=root.getBoundingClientRect(),rect=element.getBoundingClientRect();
+   zoomGuard.current=Date.now()+250;
+   root.scrollTop+=rect.top+a.y*rect.height-bounds.top-a.screenY;
+   root.scrollLeft+=rect.left+a.x*rect.width-bounds.left-a.screenX;
+  }}
+  rememberAnchor();
+ },[zoom,width]);
  useEffect(()=>{
   const root=scroller.current,host=textRef.current;if(!root||!host)return;
   const observer=new IntersectionObserver(entries=>{setNear(previous=>{const next=new Set(previous);for(const entry of entries){const n=Number((entry.target as HTMLElement).dataset.page);if(entry.isIntersecting)next.add(n);else next.delete(n);}return next;});},{root,rootMargin:'80% 0px'});
@@ -20,16 +42,18 @@ export function PdfSurface({doc,aspects,zoom,onZoom,textRef,onSelect,onVisiblePa
  },[doc,aspects.length,textRef]);
  // Re-align when the surface settles at its measured width, so a jump issued
  // while pages were still laid out at the initial width lands where it aimed.
- useEffect(()=>{if(jump)textRef.current?.querySelector(`[data-page="${jump.page}"]`)?.scrollIntoView({block:'start'});},[jump,textRef,width]);
+ useLayoutEffect(()=>{if(jump){textRef.current?.querySelector(`[data-page="${jump.page}"]`)?.scrollIntoView({block:'start'});rememberAnchor();}},[jump,textRef]);
+ useEffect(()=>()=>{cancelAnimationFrame(frame.current);},[]);
  function followScroll(){
   if(frame.current)return;
   frame.current=requestAnimationFrame(()=>{
-   frame.current=0;const root=scroller.current;if(!root)return;
+   frame.current=0;const root=scroller.current;if(!root||Date.now()<zoomGuard.current)return;
+   rememberAnchor();
    const probe=root.getBoundingClientRect().top+root.clientHeight*.22;
    for(const element of root.querySelectorAll<HTMLElement>('[data-page]')){const rect=element.getBoundingClientRect();if(rect.top<=probe&&rect.bottom>probe){onVisiblePage(Number(element.dataset.page));return;}}
   });
  }
- return <div className="pdf-frame"><div className="paperwrap reader-scroll" ref={scroller} onScroll={followScroll}><div className="pdf-pages" ref={textRef} onPointerUp={onSelect} onKeyUp={onSelect}>
+ return <div className="pdf-frame"><div className="paperwrap reader-scroll" style={{overflowAnchor:'none'}} ref={scroller} onScroll={followScroll}><div className="pdf-pages" ref={textRef} onPointerUp={onSelect} onKeyUp={onSelect}>
   {aspects.map((aspect,k)=><PdfPage key={k+1} doc={doc} page={k+1} width={width*zoom} aspect={aspect} active={near.has(k+1)}>{overlay(k+1)}</PdfPage>)}
  </div></div></div>;
 }

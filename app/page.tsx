@@ -7,8 +7,10 @@ import {PdfSurface} from './pdf-surface';
 import {reflowItems,type ReflowBlock} from '../lib/reflow';
 import {renderCrop,type CropImage,EQUATION_SCALE,FIGURE_SCALE} from '../lib/page-crop';
 import {numberRuns} from '../lib/number-runs';
+import {releaseAudio,startAudio,watchAudio} from '../lib/audio-player';
 import {SpeechBuffer} from '../lib/speech-buffer';
-import {nextPlayback} from '../lib/playback';
+import {nextPlayback,speechLookahead,warmSpeech,waitForRunway} from '../lib/playback';
+import {fetchSpeech,withSpeechBackup,SPEECH_TIMEOUT_MS,BACKUP_TIMEOUT_MS} from '../lib/speech-request';
 import {endsSentence} from '../lib/phrase-boundaries';
 import type {PDFDocumentProxy} from 'pdfjs-dist';
 type Scope='selection'|'page'|'document';
@@ -21,7 +23,7 @@ const READER_BATCH=30;
 // a passage, or reloading a revised PDF, only sends text that has not been
 // spoken yet. Roughly four papers of 128 kbps speech fit before eviction.
 const AUDIO_BUDGET=256*1024*1024;
-type Clip={player:HTMLAudioElement;bytes:number};
+type Clip={blob:Blob;bytes:number;provider:string};
 // Chromium's File System Access API hands back a handle that can re-read the
 // file after it changes on disk; other browsers only get a snapshot File.
 type PickedFile={file:File;handle?:FileSystemFileHandle;password?:string};
@@ -65,6 +67,7 @@ export default function Home(){
  function enterClean(){setCleanMode(true);requestAnimationFrame(()=>exitCleanButton.current?.focus());}
  function exitClean(){setCleanMode(false);requestAnimationFrame(()=>cleanButton.current?.focus());}
  const [sidebar,setSidebar]=useState(false),[view,setView]=useState<'pdf'|'reader'>('pdf'),[fontSize,setFontSize]=useState(24),[zoom,setZoom]=useState(1);
+ const [followReading,setFollowReading]=useState(true),[speechNotice,setSpeechNotice]=useState('');
  const readerRoot=useRef<HTMLDivElement>(null),readerActive=useRef<HTMLElement|null>(null),readerScroll=useRef<HTMLDivElement>(null),sections=useRef(new Map<number,HTMLElement|null>()),moreSentinel=useRef<HTMLDivElement>(null);
  // Reading view lays out every page in one column; pages are reflowed on demand
  // from text extracted once at load time, and the toolbar follows the scroll.
@@ -74,8 +77,8 @@ export default function Home(){
  const setActive=(element:HTMLElement|null)=>{readerActive.current=element;};
  function pageData(n:number):PageData|null{const cached=pageCache.current.get(n);if(cached)return cached;const source=pageSources.current.get(n);if(!source)return null;const next={...source,...reflowItems(source.items,documentWords.current,{furniture:furniture.current.get(n),view:source.view})};pageCache.current.set(n,next);return next;}
  function scrollReaderTo(n:number){pendingScroll.current=n;setMaterialized(m=>Math.max(m,Math.min(docRef.current?.numPages||n,n+10)));}
- useEffect(()=>{try{const saved=JSON.parse(localStorage.getItem('paper-voice-reading')||'{}');setSidebar(saved.sidebar===true);setView(saved.view==='reader'?'reader':'pdf');setFontSize(Math.max(18,Math.min(40,Number(saved.fontSize)||24)));}catch{}},[]);
- function saveReading(next:{sidebar?:boolean;view?:'pdf'|'reader';fontSize?:number}){try{localStorage.setItem('paper-voice-reading',JSON.stringify({sidebar,view,fontSize,...next}));}catch{}}
+ useEffect(()=>{try{const saved=JSON.parse(localStorage.getItem('paper-voice-reading')||'{}');setSidebar(saved.sidebar===true);setView(saved.view==='reader'?'reader':'pdf');setFontSize(Math.max(18,Math.min(40,Number(saved.fontSize)||24)));setFollowReading(saved.followReading!==false);}catch{}},[]);
+ function saveReading(next:{sidebar?:boolean;view?:'pdf'|'reader';fontSize?:number;followReading?:boolean}){try{localStorage.setItem('paper-voice-reading',JSON.stringify({sidebar,view,fontSize,followReading,...next}));}catch{}}
  function clearSelection(){setSelection(null);selectionRef.current=null;window.getSelection()?.removeAllRanges();if(scopeRef.current==='selection'){stop();auto.current=false;scopeRef.current='page';setScope('page');setIndex(0);}}
  function changeView(next:'pdf'|'reader'){clearSelection();setView(next);saveReading({view:next});if(next==='reader')scrollReaderTo(page);else jumpTo(page);}
  function changeFont(next:number){clearSelection();setFontSize(next);saveReading({fontSize:next});}
@@ -87,8 +90,11 @@ export default function Home(){
  const [selection,setSelection]=useState<SelectionData|null>(null),[scope,setScope]=useState<Scope>('page');
  const documentWords=useRef<ReadonlySet<string>>(new Set());
  const scopeRef=useRef<Scope>('page'),selectionRef=useRef<SelectionData|null>(null),textLayer=useRef<HTMLDivElement>(null);
- const audio=useRef<HTMLAudioElement|null>(null),epoch=useRef(0),cache=useRef(new SpeechBuffer<Clip>(({player})=>{player.pause();URL.revokeObjectURL(player.src);player.removeAttribute('src');player.load();},clip=>clip.bytes,AUDIO_BUDGET)),auto=useRef(false),loadId=useRef(0),activeBox=useRef<HTMLDivElement>(null),speedRef=useRef(1),docRef=useRef<PDFDocumentProxy|null>(null),picked=useRef<PickedFile|null>(null),fileInput=useRef<HTMLInputElement>(null),pauseRequested=useRef(false),followGuard=useRef(0);
- function stop(){epoch.current++;audio.current?.pause();audio.current=null;pauseRequested.current=false;setMode('idle');}
+ const prefetchId=useRef(0);
+ const audio=useRef<HTMLAudioElement|null>(null),epoch=useRef(0),cache=useRef(new SpeechBuffer<Clip>(()=>{},clip=>clip.bytes,AUDIO_BUDGET)),auto=useRef(false),loadId=useRef(0),activeBox=useRef<HTMLDivElement>(null),speedRef=useRef(1),docRef=useRef<PDFDocumentProxy|null>(null),picked=useRef<PickedFile|null>(null),fileInput=useRef<HTMLInputElement>(null),pauseRequested=useRef(false),followGuard=useRef(0);
+ const playbackWatch=useRef<(()=>void)|null>(null),playbackAttempt=useRef(0);
+ function releasePlayer(){playbackAttempt.current++;playbackWatch.current?.();playbackWatch.current=null;if(audio.current)releaseAudio(audio.current);audio.current=null;}
+ function stop(){epoch.current++;releasePlayer();pauseRequested.current=false;setMode('idle');}
  // Open PDF prefers the handle-returning picker so Reload can re-read the file.
  async function openPicker(){
   const picker=(window as Window&FilePicker).showOpenFilePicker;
@@ -135,10 +141,10 @@ export default function Home(){
   // OpenAI is the default engine; a saved choice or, failing that, whichever engine has a key wins.
   const list=d.providers,chosen=list.find(e=>e.id===saved.engine)||list.find(e=>e.id==='openai'&&e.configured)||list.find(e=>e.configured)||list[0];if(!chosen)return;
   setEngines(list);setEngineId(chosen.id);setVoice(chosen.voices.some(v=>v.id===saved.voice)?saved.voice!:chosen.voices[0]?.id||'');
- }).catch(()=>{});return()=>{loadId.current++;epoch.current++;audio.current?.pause();buffer.clear();void docRef.current?.loadingTask.destroy();};},[]);
+ }).catch(()=>{});return()=>{loadId.current++;epoch.current++;playbackWatch.current?.();if(audio.current)releaseAudio(audio.current);buffer.clear();void docRef.current?.loadingTask.destroy();};},[]);
  useEffect(()=>{if(!doc)return;setData(pageData(page));setIndex(0);setMaterialized(m=>Math.max(m,Math.min(doc.numPages,page+5)));},[doc,page]);
  useEffect(()=>{if(data&&auto.current){auto.current=false;if(data.passages.length)void speak(0,data.passages,scopeRef.current,epoch.current);else if(doc&&page<doc.numPages){auto.current=true;setPage(page+1);}else setMode('idle');}},[data]);
- useEffect(()=>{(view==='reader'&&scope!=='selection'?readerActive.current:activeBox.current)?.scrollIntoView({block:'nearest',behavior:'smooth'});},[index,mode,view,scope]);
+ useEffect(()=>{if(followReading)(view==='reader'&&scope!=='selection'?readerActive.current:activeBox.current)?.scrollIntoView({block:'nearest',behavior:'smooth'});},[index,mode,view,scope,followReading,page]);
  useEffect(()=>{speedRef.current=speed;if(audio.current)audio.current.playbackRate=speed;},[speed]);
  // Jump to a page section once it exists in the reading column.
  useEffect(()=>{const n=pendingScroll.current;if(n===null||view!=='reader')return;const section=sections.current.get(n);if(!section)return;pendingScroll.current=null;section.scrollIntoView({block:'start'});});
@@ -177,47 +183,56 @@ export default function Home(){
  function chooseEngine(id:string){const target=engines.find(e=>e.id===id);if(!target)return;stop();auto.current=false;const first=target.voices[0]?.id||'';setEngineId(id);setVoice(first);saveSpeech({engine:id,voice:first});}
  function chooseVoice(id:string){stop();auto.current=false;setVoice(id);saveSpeech({engine:engineId,voice:id});}
  function prepare(text:string):Promise<Clip>{
-  return cache.current.get(engineId+'|'+voice+'|'+text,async()=>{
-   const res=await fetch('/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:engineId,text,voice,...(!engine.configured&&keys[engineId]?{key:keys[engineId]}:{})})});
-   if(!res.ok){const e=await res.json() as {error?:string};throw Error(e.error||'Unable to generate speech.');}
-   const blob=await res.blob();
-   const url=URL.createObjectURL(blob),player=new Audio();player.preload='auto';player.src=url;
-   try{await new Promise<void>((resolve,reject)=>{
-    const cleanup=()=>{player.removeEventListener('canplaythrough',ready);player.removeEventListener('error',failed);};
-    const ready=()=>{cleanup();resolve();},failed=()=>{cleanup();reject(Error('Unable to decode speech audio.'));};
-    player.addEventListener('canplaythrough',ready,{once:true});player.addEventListener('error',failed,{once:true});player.load();
-   });return {player,bytes:blob.size};}catch(e){URL.revokeObjectURL(url);player.removeAttribute('src');player.load();throw e;}
+  const backup=engineId==='openai'?engines.find(e=>e.id==='elevenlabs'&&(e.configured||keys[e.id])):undefined;
+  return cache.current.get(engineId+'|'+voice+'|'+text+'|'+(backup?.id||''),async()=>{
+   let provider=engineId;
+   const blob=await withSpeechBackup(
+    ()=>fetchSpeech(JSON.stringify({provider:engineId,text,voice,...(!engine.configured&&keys[engineId]?{key:keys[engineId]}:{})}),fetch,SPEECH_TIMEOUT_MS,750,backup?1:2),
+    backup?async()=>{provider=backup.id;return fetchSpeech(JSON.stringify({provider:backup.id,text,voice:backup.voices[0].id,...(!backup.configured&&keys[backup.id]?{key:keys[backup.id]}:{})}),fetch,BACKUP_TIMEOUT_MS,750,1);}:undefined,
+   );
+   return {blob,bytes:blob.size,provider};
   });
  }
- async function speak(i:number,queue:Passage[]=data?.passages||[],readingScope:Scope=scopeRef.current,continuation?:number){
+ async function speak(i:number,queue:Passage[]=data?.passages||[],readingScope:Scope=scopeRef.current,continuation?:number,recovery?:{position:number}){
   if(!queue[i])return;
   if(continuation===undefined){stop();window.getSelection()?.removeAllRanges();}
   const token=continuation??epoch.current;if(token!==epoch.current)return;
-  setMode('loading');setError('');
+  releasePlayer();const attempt=playbackAttempt.current;setMode('loading');setError('');setIndex(i);
   try{
    const current=prepare(queue[i].text);
-   const ahead=queue.slice(i+1,i+3).map(p=>prepare(p.text));
-   // One clip of runway before starting; later transitions reuse decoded audio.
-   const runway=Promise.allSettled(ahead);
-   const {player}=await current;
-   if(continuation===undefined)await runway;
-   if(epoch.current!==token)return;
+   const ahead=speechLookahead(queue,i,speedRef.current);
+   // Keep two background workers busy, including across short passages.
+   // A newer passage supersedes this refill without discarding paid requests.
+   const refill=++prefetchId.current;
+   const runway=ahead[0]?prepare(ahead[0].text):Promise.resolve();
+   void runway.catch(()=>{});
+   void warmSpeech(ahead,p=>prepare(p.text),()=>epoch.current===token&&prefetchId.current===refill);
+   const {blob,provider}=await current;
+   if(continuation===undefined)await waitForRunway(runway);
+   if(epoch.current!==token||playbackAttempt.current!==attempt)return;
+   setSpeechNotice(provider!==engineId?'Using ElevenLabs backup for this passage.':'');
    // Prime the next page near this page's end for document playback.
    if(readingScope==='document'&&doc&&page<doc.numPages&&i>=queue.length-2){
     const upcoming=pageData(page+1);if(upcoming)void Promise.allSettled(upcoming.passages.slice(0,2).map(p=>prepare(p.text)));
    }
-   audio.current=player;player.currentTime=0;player.playbackRate=speedRef.current;
-   player.onended=()=>{if(epoch.current!==token)return;const next=nextPlayback(readingScope,i,queue.length,page,doc?.numPages||page);if(next==='passage')void speak(i+1,queue,readingScope,token);else if(next==='page'){auto.current=true;setMode('loading');setPage(page+1);}else{setMode('idle');audio.current=null;setIndex(0);}};
-   player.onerror=()=>{if(epoch.current===token){setError('Audio playback failed. Press play to retry.');setMode('idle');audio.current=null;}};
+   const player=new Audio(URL.createObjectURL(blob));audio.current=player;player.playbackRate=speedRef.current;
+   if(recovery){player.addEventListener('loadedmetadata',()=>{if(epoch.current===token&&audio.current===player)player.currentTime=Math.min(recovery.position,Number.isFinite(player.duration)?Math.max(0,player.duration-.05):recovery.position);},{once:true});}
+   playbackWatch.current=watchAudio(player,()=>{
+    if(epoch.current!==token||audio.current!==player)return;
+    if(!recovery){setSpeechNotice('Recovering stalled audio…');void speak(i,queue,readingScope,token,{position:player.currentTime});}
+    else{releasePlayer();setError('Audio stopped advancing after recovery. Press play to retry this passage.');setMode('idle');}
+   });
+   player.onended=()=>{if(epoch.current!==token)return;const next=nextPlayback(readingScope,i,queue.length,page,doc?.numPages||page);if(next==='passage')void speak(i+1,queue,readingScope,token);else if(next==='page'){auto.current=true;setMode('loading');setPage(page+1);}else{releasePlayer();setMode('idle');setIndex(0);}};
+   player.onerror=()=>{if(epoch.current===token){setError('Audio playback failed. Press play to retry.');setMode('idle');releasePlayer();}};
    // A pause asked for while the clip was still preparing holds here, ready to resume.
    if(pauseRequested.current){pauseRequested.current=false;setIndex(i);setMode('paused');return;}
-   await player.play();if(epoch.current===token){setIndex(i);setMode('playing');}else player.pause();
-  }catch(e){if(epoch.current===token){pauseRequested.current=false;setError(e instanceof Error?e.message:'Speech failed.');setMode('idle');audio.current=null;}}
+   await startAudio(player);if(epoch.current===token&&playbackAttempt.current===attempt){setIndex(i);setMode('playing');}else player.pause();
+  }catch(e){if(epoch.current===token&&playbackAttempt.current===attempt){pauseRequested.current=false;setError(e instanceof Error?e.message:'Speech failed.');setMode('idle');releasePlayer();}}
  }
  function toggle(){
   if(mode==='loading'){pauseRequested.current=!pauseRequested.current;return;}
   if(mode==='playing'){audio.current?.pause();setMode('paused');return;}
-  if(mode==='paused'&&audio.current){void audio.current.play().then(()=>setMode('playing')).catch(()=>{setError('Playback blocked. Press play to try again.');setMode('idle');});return;}
+  if(mode==='paused'&&audio.current){const player=audio.current;void startAudio(player).then(()=>{if(audio.current===player)setMode('playing');}).catch(()=>{if(audio.current!==player)return;releasePlayer();setError('Playback blocked. Press play to try again.');setMode('idle');});return;}
   void speak(index,scopeRef.current==='selection'?selectionRef.current?.passages:data?.passages);
  }
  function navigate(n:number){if(!doc||!Number.isInteger(n)||n<1||n>doc.numPages)return;stop();auto.current=false;setSelection(null);selectionRef.current=null;setScope('page');scopeRef.current='page';setIndex(0);setPage(n);if(view==='reader')scrollReaderTo(n);else jumpTo(n);}
@@ -255,7 +270,7 @@ export default function Home(){
   stop();auto.current=false;scopeRef.current=nextScope;setScope(nextScope);setIndex(0);
   if(nextScope==='selection'){if(selectionRef.current)void speak(0,selectionRef.current.passages,nextScope);return;}
   window.getSelection()?.removeAllRanges();setSelection(null);selectionRef.current=null;
-  if(nextScope==='document'&&page!==1){auto.current=true;setMode('loading');setPage(1);}else if(nextScope==='document'&&!data?.passages.length&&doc&&page<doc.numPages){auto.current=true;setMode('loading');setPage(page+1);}else void speak(0,data?.passages,nextScope);
+  if(nextScope==='document'&&!data?.passages.length&&doc&&page<doc.numPages){auto.current=true;setMode('loading');setPage(page+1);}else void speak(0,data?.passages,nextScope);
  }
  useEffect(()=>{
   const context=(document as Document & {modelContext?:{registerTool:(tool:unknown,options:unknown)=>void}}).modelContext;if(!context)return;
@@ -316,12 +331,12 @@ export default function Home(){
  <label>Speech engine<select value={engineId} onChange={e=>chooseEngine(e.target.value)}>{engines.map(e=><option key={e.id} value={e.id}>{e.name} · {e.model}</option>)}</select></label>
  <label>Voice<select value={voice} onChange={e=>chooseVoice(e.target.value)}>{engine.voices.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
  <label>Playback speed<select value={speed} onChange={e=>setSpeed(Number(e.target.value))}>{[.75,1,1.25,1.5,1.75,2].map(v=><option key={v} value={v}>{v}×{v===1?' · Normal':''}</option>)}</select></label>
- {engine.configured?<div className="status">{engine.name} connected <small>{engine.model} · AI-generated voice</small></div>:<label>{engine.name} API key<input autoComplete="off" type="password" value={keys[engineId]||''} placeholder={engineId==='openai'?'sk-…':'sk_car_…'} onChange={e=>setKeys({...keys,[engineId]:e.target.value})}/><small>Used for this session only.</small></label>}
- <p className="status">Your PDF stays on this computer. When you press play, text is sent to {engine.name} for speech, including up to two upcoming passages to keep playback flowing. Clips are kept in memory until the app closes, so passages you have already heard are not generated again.</p>
+ {engine.configured?<div className="status">{engine.name} connected <small>{engine.model} · AI-generated voice</small>{engineId==='openai'&&engines.some(e=>e.id==='elevenlabs'&&e.configured)&&<small>ElevenLabs backup enabled</small>}</div>:<label>{engine.name} API key<input autoComplete="off" type="password" value={keys[engineId]||''} placeholder={engineId==='openai'?'sk-…':'ElevenLabs API key'} onChange={e=>setKeys({...keys,[engineId]:e.target.value})}/><small>Used for this session only.</small></label>}
+ <p className="status">Your PDF stays on this computer. When you press play, text is sent to {engine.name} for speech, including up to six upcoming passages to keep playback flowing. If OpenAI fails and ElevenLabs is configured, that passage is sent to ElevenLabs as a backup. Clips are kept in memory until the app closes, so passages you have already heard are not generated again.</p>
  </aside><section className="desk">
  <div className="toolbar"><div className="controls"><FileText size={18}/><strong>{name||'Your document'}</strong></div>{doc&&<div className="controls"><button aria-label="Previous page" disabled={page===1} onClick={()=>navigate(page-1)}><ChevronLeft size={18}/></button><input key={page} aria-label="Page number" className="pageinput" type="number" min={1} max={doc.numPages} defaultValue={page} onBlur={e=>{navigate(Number(e.target.value));e.target.value=String(page);}} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}/><small>of {doc.numPages}</small><button aria-label="Next page" disabled={page===doc.numPages} onClick={()=>navigate(page+1)}><ChevronRight size={18}/></button></div>}</div>
  {doc&&<div className="reader-tools"><div className="view-options" role="group" aria-label="Reading view"><button aria-pressed={view==='pdf'} onClick={()=>changeView('pdf')}><FileText size={16}/>PDF</button><button aria-pressed={view==='reader'} onClick={()=>changeView('reader')}><BookOpen size={16}/>Reading view</button></div>{view==='pdf'?<div className="controls"><button aria-label="Zoom out" disabled={zoom<=.5} onClick={()=>{clearSelection();setZoom(Math.max(.5,zoom-.25));}}><Minus size={16}/></button><button onClick={()=>{clearSelection();setZoom(1);}} title="Fit page width">{zoom===1?'Fit width':`${Math.round(zoom*100)}%`}</button><button aria-label="Zoom in" disabled={zoom>=3} onClick={()=>{clearSelection();setZoom(Math.min(3,zoom+.25));}}><Plus size={16}/></button></div>:<div className="controls"><button aria-label="Smaller text" disabled={fontSize<=18} onClick={()=>changeFont(fontSize-2)}>A−</button><span>{fontSize} px</span><button aria-label="Larger text" disabled={fontSize>=40} onClick={()=>changeFont(fontSize+2)}>A+</button></div>}</div>}
- {doc&&<div className="reading-actions"><button className="primary" disabled={!selection||loading} onClick={()=>startReading('selection')}>Read selection</button><button disabled={!data?.passages.length||loading} onClick={()=>startReading('page')}>Read page</button><button disabled={!doc||loading} onClick={()=>startReading('document')}>Read entire document</button><small>{selection?`${selection.text.length} characters selected`:'Drag across text to select a part to read.'}</small></div>}
+ {doc&&<div className="reading-actions"><button className="primary" disabled={!selection||loading} onClick={()=>startReading('selection')}>Read selection</button><button disabled={!data?.passages.length||loading} onClick={()=>startReading('page')}>Read page</button><button disabled={!doc||loading} onClick={()=>startReading('document')}>From this page to the end</button><button aria-pressed={followReading} title="Keep the spoken passage in view" onClick={()=>{setFollowReading(!followReading);saveReading({followReading:!followReading});}}>Follow reading: {followReading?'On':'Off'}</button><small>{selection?`${selection.text.length} characters selected`:'Drag across text to select a part to read.'}</small></div>}
  {error&&<p role="alert" className="error">{error}</p>}
  {doc?<>{view==='pdf'?<PdfSurface doc={doc} aspects={aspects} zoom={zoom} onZoom={pinch} textRef={textLayer} onSelect={captureSelection} onVisiblePage={followPdfPage} jump={pdfJump} overlay={n=><>
  {selection?.page===n&&selectedBoxes.map((b,i)=><div ref={speakingSelection&&i===0?activeBox:undefined} key={'selection'+i} className={speakingSelection?'highlight':'highlight selection-highlight'} style={{left:b.left+'%',top:b.top+'%',width:b.width+'%',height:b.height+'%'}}/>)}
@@ -332,6 +347,6 @@ export default function Home(){
  {selectedBoxes.map((b,i)=><div key={i} ref={speakingSelection&&i===0?activeBox:undefined} className={speakingSelection?'highlight':'highlight selection-highlight'} style={{left:b.left+'%',top:b.top+'%',width:b.width+'%',height:b.height+'%'}}/>)}
  </div></article></div>}
  {loading&&<p role="status">Preparing document…</p>}{!loading&&data&&!data.passages.length&&view==='pdf'&&<p>This page has no selectable text. Scanned pages need OCR before they can be read aloud.</p>}
- <div className="transport"><button aria-label="Previous passage" disabled={!queue||index===0} onClick={()=>selectPassage(index-1)}><SkipBack size={18}/></button><button className="primary" onClick={toggle} disabled={mode!=='loading'&&(!passage||loading)}>{mode==='playing'||mode==='loading'?<Pause size={19}/>:<Play size={19}/>} {mode==='playing'||mode==='loading'?'Pause':mode==='paused'?'Resume':'Listen'}</button><button aria-label="Next passage" disabled={!queue||index>=queue.length-1} onClick={()=>selectPassage(index+1)}><SkipForward size={18}/></button><div role="status">{mode==='loading'?'Preparing your audio…':mode==='playing'?'Reading aloud':mode==='paused'?'Paused':'Ready when you are'}<small>Passage {queue?.length?index+1:0} of {queue?.length||0} · {scope==='selection'?'Selected text':scope==='page'?'This page only':'Entire document'}</small></div></div><div className="progress"><i style={{width:`${queue?.length?(index+1)/queue.length*100:0}%`}}/></div></>:<div className="empty">{locked&&!loading?<form className="unlock" onSubmit={e=>{e.preventDefault();void load({...locked.source,password},locked.keepPage);setPassword('');}}><Lock size={36}/><h2>This PDF is password protected.</h2><label>Password for {locked.source.file.name}<input type="password" autoComplete="off" autoFocus value={password} onChange={e=>setPassword(e.target.value)}/></label>{locked.retry&&<p role="alert" className="error">That password did not open the document. Try again.</p>}<button className="primary" type="submit" disabled={!password}>Unlock</button><small>The password is kept in memory only while this document is open, and is never saved.</small></form>:<><Upload size={36}/><h2>{loading?'Opening your document…':'Drop into a good read.'}</h2><p>Drop a PDF anywhere, or use Open PDF above.</p></>}</div>}
- </section></div>{cleanMode&&<div className="clean-controls" role="group" aria-label="Reading controls"><button className="clean-voice" disabled={mode!=='loading'&&(!passage||loading)} onClick={toggle} aria-label={mode==='playing'||mode==='loading'?'Pause voice':'Resume/start voice'} title={mode==='playing'||mode==='loading'?'Pause voice':'Resume or start voice'}>{mode==='playing'||mode==='loading'?<Pause size={20}/>:<Play size={20}/>}</button><span className="clean-page" aria-hidden="true">{doc?page+'/'+doc.numPages:''}</span><button onClick={()=>void openPicker()} aria-label="Open another PDF" title="Open another PDF (a dropped PDF works too)"><Upload size={18}/></button><button disabled={!doc||loading} onClick={()=>void reload()} aria-label="Reload the PDF from disk" title="Reload the PDF from disk to pick up changes"><RefreshCw size={18}/></button><button className="theme-toggle" type="button" aria-label={dark?'Switch to light mode':'Switch to dark mode'} aria-pressed={dark} title={dark?'Switch to light mode':'Switch to dark mode'} onClick={toggleTheme}>{dark?<Sun size={18}/>:<Moon size={18}/>}</button><button ref={exitCleanButton} onClick={exitClean} aria-label="Exit clean mode" title="Show controls (Esc)"><Minimize size={18}/></button><span className="sr-only" role="status">{mode==='loading'?'Preparing audio':mode==='playing'?'Reading aloud':mode==='paused'?'Paused':'Ready'}. Page {page} of {doc?.numPages}. Use left and right arrow keys to change pages; drop a PDF anywhere to open it.</span></div>}</main>
+ <div className="transport"><button aria-label="Previous passage" disabled={!queue||index===0} onClick={()=>selectPassage(index-1)}><SkipBack size={18}/></button><button className="primary" onClick={toggle} disabled={mode!=='loading'&&(!passage||loading)}>{mode==='playing'||mode==='loading'?<Pause size={19}/>:<Play size={19}/>} {mode==='playing'||mode==='loading'?'Pause':mode==='paused'?'Resume':'Listen'}</button><button aria-label="Next passage" disabled={!queue||index>=queue.length-1} onClick={()=>selectPassage(index+1)}><SkipForward size={18}/></button><div role="status">{speechNotice&&<small>{speechNotice}</small>}{mode==='loading'?'Preparing your audio…':mode==='playing'?'Reading aloud':mode==='paused'?'Paused':'Ready when you are'}<small>Passage {queue?.length?index+1:0} of {queue?.length||0} · {scope==='selection'?'Selected text':scope==='page'?'This page only':'Through the last page'}</small></div></div><div className="progress"><i style={{width:`${queue?.length?(index+1)/queue.length*100:0}%`}}/></div></>:<div className="empty">{locked&&!loading?<form className="unlock" onSubmit={e=>{e.preventDefault();void load({...locked.source,password},locked.keepPage);setPassword('');}}><Lock size={36}/><h2>This PDF is password protected.</h2><label>Password for {locked.source.file.name}<input type="password" autoComplete="off" autoFocus value={password} onChange={e=>setPassword(e.target.value)}/></label>{locked.retry&&<p role="alert" className="error">That password did not open the document. Try again.</p>}<button className="primary" type="submit" disabled={!password}>Unlock</button><small>The password is kept in memory only while this document is open, and is never saved.</small></form>:<><Upload size={36}/><h2>{loading?'Opening your document…':'Drop into a good read.'}</h2><p>Drop a PDF anywhere, or use Open PDF above.</p></>}</div>}
+ </section></div>{cleanMode&&<div className="clean-controls" role="group" aria-label="Reading controls">{(error||mode==='loading'||speechNotice)&&<span className="clean-notice" role={error?'alert':'status'}>{error||(mode==='loading'?'Preparing audio…':speechNotice)}</span>}<button className="clean-voice" disabled={mode!=='loading'&&(!passage||loading)} onClick={toggle} aria-label={mode==='playing'||mode==='loading'?'Pause voice':'Resume/start voice'} title={mode==='playing'||mode==='loading'?'Pause voice':'Resume or start voice'}>{mode==='playing'||mode==='loading'?<Pause size={20}/>:<Play size={20}/>}</button><span className="clean-page" aria-hidden="true">{doc?page+'/'+doc.numPages:''}</span><button onClick={()=>void openPicker()} aria-label="Open another PDF" title="Open another PDF (a dropped PDF works too)"><Upload size={18}/></button><button disabled={!doc||loading} onClick={()=>void reload()} aria-label="Reload the PDF from disk" title="Reload the PDF from disk to pick up changes"><RefreshCw size={18}/></button><button className="theme-toggle" type="button" aria-label={dark?'Switch to light mode':'Switch to dark mode'} aria-pressed={dark} title={dark?'Switch to light mode':'Switch to dark mode'} onClick={toggleTheme}>{dark?<Sun size={18}/>:<Moon size={18}/>}</button><button ref={exitCleanButton} onClick={exitClean} aria-label="Exit clean mode" title="Show controls (Esc)"><Minimize size={18}/></button><span className="sr-only" role="status">{mode==='loading'?'Preparing audio':mode==='playing'?'Reading aloud':mode==='paused'?'Paused':'Ready'}. Page {page} of {doc?.numPages}. Use left and right arrow keys to change pages; drop a PDF anywhere to open it.</span></div>}</main>
 }

@@ -53,3 +53,5 @@ main{height:100dvh;display:flex;flex-direction:column;overflow:hidden}header{fle
 .reflow-caption{font-size:.8em;line-height:1.6;color:#4b5563;margin-bottom:1.8em}
 [data-theme="dark"] .reflow-fig img{filter:invert(.9) hue-rotate(180deg) brightness(.95)}[data-theme="dark"] .reflow-fig.spoken{background:#514527;box-shadow:-8px 0 #e1bd56}[data-theme="dark"] .reflow-caption{color:#aab7c8}[data-theme="dark"] .reflow-fig-pending{color:#7d8ca0}
 .unlock{display:flex;flex-direction:column;align-items:center;width:min(360px,100%)}.unlock label{align-self:stretch;text-align:left;margin:28px 0 14px}.unlock .error{align-self:stretch;margin:0 0 14px;text-align:left}.unlock button{align-self:stretch;margin-bottom:12px}
+
+.clean-notice{position:absolute;right:0;bottom:calc(100% + 8px);width:max-content;max-width:min(380px,85vw);padding:10px 14px;border-radius:12px;background:inherit;border:1px solid #8c9db3;font-size:13px;line-height:1.4;box-shadow:0 3px 15px #182e4926}
