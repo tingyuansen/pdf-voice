@@ -170,6 +170,9 @@ export function reflowItems(items:Item[],documentWords:ReadonlySet<string>=new S
    const candidates=lines.map((o,k)=>({o,k})).filter(({o})=>!caption.includes(o)&&o.x<x1+body&&o.end>x0-body&&(above?o.y>edge:o.y<edge)).sort((a,b)=>above?a.o.y-b.o.y:b.o.y-a.o.y);
    const inside:Line[]=[];let boundary:Line|null=null;
    for(const {o,k} of candidates){if(stopLine(o,k)){boundary=o;break;}inside.push(o);}
+   // Below a full-width float, the first text row of each column sits level with
+   // the line that stopped the band; a short or math-heavy one is text, not cells.
+   if(boundary){const stop=boundary;for(let k=inside.length-1;k>=0;k--)if(Math.abs(inside[k].y-stop.y)<body*.5&&columnOf(inside[k])!==columnOf(stop))inside.splice(k,1);}
    const far=above?(boundary?boundary.y-boundary.height*.4:topClip):(boundary?boundary.y+boundary.height*.95:bottomClip);
    const box=above?{x0:x0-body*1.5,y0:edge,x1:x1+body*1.5,y1:far}:{x0:x0-body*1.5,y0:far,x1:x1+body*1.5,y1:edge};
    const distance=boundary?Math.abs(boundary.y-(above?l.y:last.y)):Infinity;
@@ -263,7 +266,8 @@ export function reflowItems(items:Item[],documentWords:ReadonlySet<string>=new S
     // Remove ambiguous line-end hyphens when the joined word is attested elsewhere
     // or the remainder is a plain suffix; preserve compounds and minus signs.
     if((words.has(combined)||documentWords.has(combined)||left.length>=3&&SUFFIX.test(right.toLowerCase()))&&!compounds.has(hyphenated)){const last=group.pieces.at(-1)!;last.text=last.text.slice(0,-1);}
-   }else if(!/\s$/.test(tail))group.pieces.push({text:' ',indices:[]});
+   // A range broken after its dash ("3800–" / "4600 K") closes up like a hyphen.
+   }else if(!/\s$/.test(tail)&&!(/\d[–-]$/.test(tail)&&/^\d/.test(first.text)))group.pieces.push({text:' ',indices:[]});
   }
   group.pieces.push(...line.pieces);group.items.push(...line.items);
  }

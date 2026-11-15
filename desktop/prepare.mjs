@@ -7,4 +7,4 @@ fs.rmSync(path.join(staging,'desktop-dist'),{recursive:true,force:true});
 fs.cpSync(path.join(root,'desktop-dist'),path.join(staging,'desktop-dist'),{recursive:true});
 fs.mkdirSync(path.join(staging,'desktop'),{recursive:true});
 for(const name of ['main.cjs','server.cjs'])fs.copyFileSync(path.join(root,'desktop',name),path.join(staging,'desktop',name));
-fs.writeFileSync(path.join(staging,'package.json'),JSON.stringify({name:'paper-voice',version:JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).version,description:'Read and listen to PDFs with ElevenLabs or OpenAI speech.',author:'Yuan-Sen Ting',main:'desktop/main.cjs'},null,2));
+fs.writeFileSync(path.join(staging,'package.json'),JSON.stringify({name:'paper-voice',version:JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).version,description:'Read and listen to PDFs with Speechify, Gemini or OpenAI speech.',author:'Yuan-Sen Ting',main:'desktop/main.cjs'},null,2));

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {nextPlayback,speechLookahead,warmSpeech,waitForRunway} from '../lib/playback.ts';
-import {fetchSpeech,withSpeechBackup} from '../lib/speech-request.ts';
+import {fetchSpeech,withSpeechBackup,backupTimeout,BACKUP_TIMEOUT_MS} from '../lib/speech-request.ts';
 import {passagesFromItems} from '../lib/passages.ts';
 for(const scope of ['selection','page','document'])assert.equal(nextPlayback(scope,0,2,1,21),'passage');
 assert.equal(nextPlayback('selection',1,2,1,21),'stop');
@@ -38,6 +38,13 @@ assert.equal(await withSpeechBackup(async()=>1,async()=>{backupCalls++;return 2;
 assert.equal(await withSpeechBackup(async()=>{throw Error('primary');},async()=>{backupCalls++;return 2;}),2);assert.equal(backupCalls,1);
 await assert.rejects(withSpeechBackup(async()=>{throw Error('primary');}),/primary/);
 await assert.rejects(withSpeechBackup(async()=>{throw Error('primary');},async()=>{throw Error('backup');}),/backup/);
+// Three engines: each backup runs only after everything before it failed, in order.
+{const order=[];const fail=name=>async()=>{order.push(name);throw Error(name);},ok=name=>async()=>{order.push(name);return name;};
+ assert.equal(await withSpeechBackup(fail('speechify'),ok('gemini'),ok('openai')),'gemini');assert.deepEqual(order,['speechify','gemini']);order.length=0;
+ assert.equal(await withSpeechBackup(fail('speechify'),fail('gemini'),ok('openai')),'openai');assert.deepEqual(order,['speechify','gemini','openai']);order.length=0;
+ await assert.rejects(withSpeechBackup(fail('speechify'),fail('gemini'),fail('openai')),/openai/);assert.deepEqual(order,['speechify','gemini','openai']);}
+// Backups get more time for long passages, but stay under the servers' 90-second limit.
+assert.equal(backupTimeout(300),BACKUP_TIMEOUT_MS);assert(backupTimeout(2400)>backupTimeout(800));assert(backupTimeout(4096)<=85000);
 console.log('PASS: duration-based lookahead, bounded prefetch concurrency, stale refill cancellation, bounded startup, network/body/server recovery, no auth or quota retry, and finite failures.');
 // Deadlines cover missing headers and a response body that never finishes,
 // even if the transport does not settle its promise when aborted.

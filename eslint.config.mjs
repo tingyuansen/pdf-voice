@@ -19,6 +19,12 @@ export default defineConfig([
       // The reader synchronises React state with pdf.js, the audio element,
       // localStorage and scroll position from effects on purpose.
       "react-hooks/set-state-in-effect": "off",
+      // Rules for the React Compiler, which this build does not use. Until
+      // 1.8 they were silently skipped because the compiler bailed out of the
+      // reader component; the reader keeps playback state in refs on purpose.
+      "react-hooks/refs": "off",
+      "react-hooks/immutability": "off",
+      "react-hooks/purity": "off",
       // Crops of equations and figures are data URLs rasterised from the
       // PDF page; there is nothing for an image loader to optimise.
       "@next/next/no-img-element": "off",

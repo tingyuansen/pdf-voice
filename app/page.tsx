@@ -10,7 +10,9 @@ import {numberRuns} from '../lib/number-runs';
 import {releaseAudio,startAudio,watchAudio} from '../lib/audio-player';
 import {SpeechBuffer} from '../lib/speech-buffer';
 import {nextPlayback,speechLookahead,warmSpeech,waitForRunway} from '../lib/playback';
-import {fetchSpeech,withSpeechBackup,SPEECH_TIMEOUT_MS,BACKUP_TIMEOUT_MS} from '../lib/speech-request';
+import {fetchSpeech,withSpeechBackup,backupTimeout,SPEECH_TIMEOUT_MS} from '../lib/speech-request';
+import {detectFurniture} from '../lib/furniture';
+import {spokenText} from '../lib/speech-text';
 import {endsSentence} from '../lib/phrase-boundaries';
 import type {PDFDocumentProxy} from 'pdfjs-dist';
 type Scope='selection'|'page'|'document';
@@ -29,22 +31,6 @@ type Clip={blob:Blob;bytes:number;provider:string};
 type PickedFile={file:File;handle?:FileSystemFileHandle;password?:string};
 type FilePicker={showOpenFilePicker?:(options:{types:{description:string;accept:Record<string,string[]>}[]})=>Promise<FileSystemFileHandle[]>};
 type HandleItem=DataTransferItem&{getAsFileSystemHandle?:()=>Promise<FileSystemHandle|null>};
-// Running heads and page numbers: text repeated in the top or bottom row of
-// many pages, or integers there that track the page index with one offset.
-function detectFurniture(sources:Map<number,PageSource>):Map<number,Set<number>>{
- const rows=new Map<number,{index:number;text:string}[]>();
- for(const [n,{items}] of sources){
-  const real=items.map((item,index)=>({item,index})).filter(({item})=>item.str.trim());if(!real.length)continue;
-  const ys=real.map(({item})=>item.transform[5]),top=Math.max(...ys),bottom=Math.min(...ys);
-  const heights=real.map(({item})=>item.height).sort((a,b)=>a-b),body=heights[Math.floor(heights.length/2)]||10;
-  rows.set(n,real.filter(({item})=>item.transform[5]>=top-body*1.5||item.transform[5]<=bottom+body*1.5).map(({item,index})=>({index,text:item.str.trim().replace(/\s+/g,' ')})));
- }
- const threshold=Math.max(3,Math.ceil(sources.size*.3)),counts=new Map<string,number>(),offsets=new Map<number,number>();
- for(const [n,row] of rows){for(const text of new Set(row.map(r=>r.text)))counts.set(text,(counts.get(text)||0)+1);for(const r of row)if(/^\d{1,4}$/.test(r.text)){const offset=Number(r.text)-n;offsets.set(offset,(offsets.get(offset)||0)+1);}}
- const result=new Map<number,Set<number>>();
- for(const [n,row] of rows){const set=new Set<number>();for(const r of row)if((counts.get(r.text)||0)>=threshold||/^\d{1,4}$/.test(r.text)&&(offsets.get(Number(r.text)-n)||0)>=threshold)set.add(r.index);if(set.size)result.set(n,set);}
- return result;
-}
 function passageNodes(passage:Passage,trimHyphen=false):ReactNode[]{
  const runs=(text:string,offset:number)=>numberRuns(text).map((run,r)=>run.number?<span key={offset+r} className="number-run">{run.text}</span>:<Fragment key={offset+r}>{run.text}</Fragment>);
  const text=trimHyphen?passage.text.replace(/-$/,''):passage.text;
@@ -56,10 +42,12 @@ function passageNodes(passage:Passage,trimHyphen=false):ReactNode[]{
  if(at<text.length)nodes.push(...runs(text.slice(at),nodes.length));
  return nodes;
 }
-type SpeechEngine={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
-const fallbackEngine:SpeechEngine={id:'openai',name:'OpenAI',model:'gpt-4o-mini-tts',configured:false,voices:[]};
+type SpeechEngine={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string;gender?:string}[]};
+const fallbackEngine:SpeechEngine={id:'speechify',name:'Speechify',model:'simba-3.5',configured:false,voices:[]};
+// v2: the engine line-up changed in 1.8, so earlier saved choices (OpenAI, ElevenLabs) no longer override the new default.
+const SPEECH_PREFERENCE='paper-voice-speech-v2';
 export default function Home(){
- const [doc,setDoc]=useState<PDFDocumentProxy|null>(null),[name,setName]=useState(''),[page,setPage]=useState(1),[data,setData]=useState<PageData|null>(null),[index,setIndex]=useState(0),[mode,setMode]=useState<'idle'|'loading'|'playing'|'paused'>('idle'),[error,setError]=useState(''),[loading,setLoading]=useState(false),[voice,setVoice]=useState(''),[keys,setKeys]=useState<Record<string,string>>({}),[engines,setEngines]=useState<SpeechEngine[]>([]),[engineId,setEngineId]=useState('openai'),[speed,setSpeed]=useState(1),[drag,setDrag]=useState(false);
+ const [doc,setDoc]=useState<PDFDocumentProxy|null>(null),[name,setName]=useState(''),[page,setPage]=useState(1),[data,setData]=useState<PageData|null>(null),[index,setIndex]=useState(0),[mode,setMode]=useState<'idle'|'loading'|'playing'|'paused'>('idle'),[error,setError]=useState(''),[loading,setLoading]=useState(false),[voice,setVoice]=useState(''),[keys,setKeys]=useState<Record<string,string>>({}),[engines,setEngines]=useState<SpeechEngine[]>([]),[engineId,setEngineId]=useState('speechify'),[speed,setSpeed]=useState(1),[drag,setDrag]=useState(false);
  const [cleanMode,setCleanMode]=useState(false);
  // An encrypted PDF waits here for its open password; retry marks a rejected one.
  const [locked,setLocked]=useState<{source:PickedFile;keepPage:boolean;retry:boolean}|null>(null),[password,setPassword]=useState('');
@@ -137,9 +125,9 @@ export default function Home(){
   }catch(e){if(id===loadId.current){if(e instanceof Error&&e.name==='PasswordException')setLocked({source,keepPage,retry:source.password!==undefined});else setError(e instanceof Error?e.message:'Could not open this PDF.');}}finally{if(id===loadId.current)setLoading(false);}
  }
  useEffect(()=>{const buffer=cache.current;fetch('/api/speech').then(r=>r.json() as Promise<{providers:SpeechEngine[]}>).then(d=>{
-  let saved:{engine?:string;voice?:string}={};try{saved=JSON.parse(localStorage.getItem('paper-voice-speech')||'{}');}catch{}
-  // OpenAI is the default engine; a saved choice or, failing that, whichever engine has a key wins.
-  const list=d.providers,chosen=list.find(e=>e.id===saved.engine)||list.find(e=>e.id==='openai'&&e.configured)||list.find(e=>e.configured)||list[0];if(!chosen)return;
+  let saved:{engine?:string;voice?:string}={};try{saved=JSON.parse(localStorage.getItem(SPEECH_PREFERENCE)||'{}');}catch{}
+  // A saved choice wins; otherwise the first engine with a key, in the server's order (Speechify, Gemini, OpenAI).
+  const list=d.providers,chosen=list.find(e=>e.id===saved.engine)||list.find(e=>e.configured)||list[0];if(!chosen)return;
   setEngines(list);setEngineId(chosen.id);setVoice(chosen.voices.some(v=>v.id===saved.voice)?saved.voice!:chosen.voices[0]?.id||'');
  }).catch(()=>{});return()=>{loadId.current++;epoch.current++;playbackWatch.current?.();if(audio.current)releaseAudio(audio.current);buffer.clear();void docRef.current?.loadingTask.destroy();};},[]);
  useEffect(()=>{if(!doc)return;setData(pageData(page));setIndex(0);setMaterialized(m=>Math.max(m,Math.min(doc.numPages,page+5)));},[doc,page]);
@@ -179,41 +167,52 @@ export default function Home(){
   });
  }
  const engine=engines.find(e=>e.id===engineId)||fallbackEngine;
- function saveSpeech(next:{engine:string;voice:string}){try{localStorage.setItem('paper-voice-speech',JSON.stringify(next));}catch{}}
+ // Every other engine with a key backs up the chosen one, in the server's order.
+ const backups=engines.filter(e=>e.id!==engineId&&(e.configured||keys[e.id])&&e.voices.length);
+ function saveSpeech(next:{engine:string;voice:string}){try{localStorage.setItem(SPEECH_PREFERENCE,JSON.stringify(next));}catch{}}
  function chooseEngine(id:string){const target=engines.find(e=>e.id===id);if(!target)return;stop();auto.current=false;const first=target.voices[0]?.id||'';setEngineId(id);setVoice(first);saveSpeech({engine:id,voice:first});}
  function chooseVoice(id:string){stop();auto.current=false;setVoice(id);saveSpeech({engine:engineId,voice:id});}
- function prepare(text:string):Promise<Clip>{
-  const backup=engineId==='openai'?engines.find(e=>e.id==='elevenlabs'&&(e.configured||keys[e.id])):undefined;
-  return cache.current.get(engineId+'|'+voice+'|'+text+'|'+(backup?.id||''),async()=>{
+ // Engines receive the spoken form of a passage (symbols, units and scripts read out),
+ // so all three read the same words; cached clips are keyed by what was said.
+ function prepare(passage:Passage):Promise<Clip>{
+  const text=spokenText(passage);
+  // A backup reads in a voice of the same gender as the chosen one, so a failover does not switch speaker type.
+  const gender=engine.voices.find(v=>v.id===voice)?.gender;
+  const request=(target:SpeechEngine,targetVoice:string,timeout:number,attempts:number)=>fetchSpeech(JSON.stringify({provider:target.id,text,voice:targetVoice,...(!target.configured&&keys[target.id]?{key:keys[target.id]}:{})}),fetch,timeout,750,attempts);
+  return cache.current.get(engineId+'|'+voice+'|'+text+'|'+backups.map(e=>e.id).join(','),async()=>{
    let provider=engineId;
    const blob=await withSpeechBackup(
-    ()=>fetchSpeech(JSON.stringify({provider:engineId,text,voice,...(!engine.configured&&keys[engineId]?{key:keys[engineId]}:{})}),fetch,SPEECH_TIMEOUT_MS,750,backup?1:2),
-    backup?async()=>{provider=backup.id;return fetchSpeech(JSON.stringify({provider:backup.id,text,voice:backup.voices[0].id,...(!backup.configured&&keys[backup.id]?{key:keys[backup.id]}:{})}),fetch,BACKUP_TIMEOUT_MS,750,1);}:undefined,
+    ()=>request(engine,voice,SPEECH_TIMEOUT_MS,backups.length?1:2),
+    ...backups.map(backup=>async()=>{provider=backup.id;return request(backup,(backup.voices.find(v=>gender&&v.gender===gender)||backup.voices[0]).id,backupTimeout(text.length),1);}),
    );
    return {blob,bytes:blob.size,provider};
   });
  }
+ // After a passage: the next one, the next page in document playback, or stop.
+ function advance(i:number,queue:Passage[],readingScope:Scope,token:number){const next=nextPlayback(readingScope,i,queue.length,page,doc?.numPages||page);if(next==='passage')void speak(i+1,queue,readingScope,token);else if(next==='page'){auto.current=true;setMode('loading');setPage(page+1);}else{releasePlayer();setMode('idle');setIndex(0);}}
  async function speak(i:number,queue:Passage[]=data?.passages||[],readingScope:Scope=scopeRef.current,continuation?:number,recovery?:{position:number}){
   if(!queue[i])return;
   if(continuation===undefined){stop();window.getSelection()?.removeAllRanges();}
   const token=continuation??epoch.current;if(token!==epoch.current)return;
   releasePlayer();const attempt=playbackAttempt.current;setMode('loading');setError('');setIndex(i);
   try{
-   const current=prepare(queue[i].text);
-   const ahead=speechLookahead(queue,i,speedRef.current);
+   // Axis ticks and table cells left as text have nothing to say: move straight on.
+   if(!spokenText(queue[i])){advance(i,queue,readingScope,token);return;}
+   const current=prepare(queue[i]);
+   const ahead=speechLookahead(queue,i,speedRef.current).filter(p=>spokenText(p));
    // Keep two background workers busy, including across short passages.
    // A newer passage supersedes this refill without discarding paid requests.
    const refill=++prefetchId.current;
-   const runway=ahead[0]?prepare(ahead[0].text):Promise.resolve();
+   const runway=ahead[0]?prepare(ahead[0]):Promise.resolve();
    void runway.catch(()=>{});
-   void warmSpeech(ahead,p=>prepare(p.text),()=>epoch.current===token&&prefetchId.current===refill);
+   void warmSpeech(ahead,p=>prepare(p),()=>epoch.current===token&&prefetchId.current===refill);
    const {blob,provider}=await current;
    if(continuation===undefined)await waitForRunway(runway);
    if(epoch.current!==token||playbackAttempt.current!==attempt)return;
-   setSpeechNotice(provider!==engineId?'Using ElevenLabs backup for this passage.':'');
+   setSpeechNotice(provider!==engineId?`Using ${engines.find(e=>e.id===provider)?.name||provider} backup for this passage.`:'');
    // Prime the next page near this page's end for document playback.
    if(readingScope==='document'&&doc&&page<doc.numPages&&i>=queue.length-2){
-    const upcoming=pageData(page+1);if(upcoming)void Promise.allSettled(upcoming.passages.slice(0,2).map(p=>prepare(p.text)));
+    const upcoming=pageData(page+1);if(upcoming)void Promise.allSettled(upcoming.passages.filter(p=>spokenText(p)).slice(0,2).map(p=>prepare(p)));
    }
    const player=new Audio(URL.createObjectURL(blob));audio.current=player;player.playbackRate=speedRef.current;
    if(recovery){player.addEventListener('loadedmetadata',()=>{if(epoch.current===token&&audio.current===player)player.currentTime=Math.min(recovery.position,Number.isFinite(player.duration)?Math.max(0,player.duration-.05):recovery.position);},{once:true});}
@@ -222,7 +221,7 @@ export default function Home(){
     if(!recovery){setSpeechNotice('Recovering stalled audio…');void speak(i,queue,readingScope,token,{position:player.currentTime});}
     else{releasePlayer();setError('Audio stopped advancing after recovery. Press play to retry this passage.');setMode('idle');}
    });
-   player.onended=()=>{if(epoch.current!==token)return;const next=nextPlayback(readingScope,i,queue.length,page,doc?.numPages||page);if(next==='passage')void speak(i+1,queue,readingScope,token);else if(next==='page'){auto.current=true;setMode('loading');setPage(page+1);}else{releasePlayer();setMode('idle');setIndex(0);}};
+   player.onended=()=>{if(epoch.current!==token)return;advance(i,queue,readingScope,token);};
    player.onerror=()=>{if(epoch.current===token){setError('Audio playback failed. Press play to retry.');setMode('idle');releasePlayer();}};
    // A pause asked for while the clip was still preparing holds here, ready to resume.
    if(pauseRequested.current){pauseRequested.current=false;setIndex(i);setMode('paused');return;}
@@ -331,8 +330,8 @@ export default function Home(){
  <label>Speech engine<select value={engineId} onChange={e=>chooseEngine(e.target.value)}>{engines.map(e=><option key={e.id} value={e.id}>{e.name} · {e.model}</option>)}</select></label>
  <label>Voice<select value={voice} onChange={e=>chooseVoice(e.target.value)}>{engine.voices.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
  <label>Playback speed<select value={speed} onChange={e=>setSpeed(Number(e.target.value))}>{[.75,1,1.25,1.5,1.75,2].map(v=><option key={v} value={v}>{v}×{v===1?' · Normal':''}</option>)}</select></label>
- {engine.configured?<div className="status">{engine.name} connected <small>{engine.model} · AI-generated voice</small>{engineId==='openai'&&engines.some(e=>e.id==='elevenlabs'&&e.configured)&&<small>ElevenLabs backup enabled</small>}</div>:<label>{engine.name} API key<input autoComplete="off" type="password" value={keys[engineId]||''} placeholder={engineId==='openai'?'sk-…':'ElevenLabs API key'} onChange={e=>setKeys({...keys,[engineId]:e.target.value})}/><small>Used for this session only.</small></label>}
- <p className="status">Your PDF stays on this computer. When you press play, text is sent to {engine.name} for speech, including up to six upcoming passages to keep playback flowing. If OpenAI fails and ElevenLabs is configured, that passage is sent to ElevenLabs as a backup. Clips are kept in memory until the app closes, so passages you have already heard are not generated again.</p>
+ {engine.configured?<div className="status">{engine.name} connected <small>{engine.model} · AI-generated voice</small>{backups.length>0&&<small>Backup: {backups.map(e=>e.name).join(', then ')}</small>}</div>:<label>{engine.name} API key<input autoComplete="off" type="password" value={keys[engineId]||''} placeholder={`${engine.name} API key`} onChange={e=>setKeys({...keys,[engineId]:e.target.value})}/><small>Used for this session only.</small></label>}
+ <p className="status">Your PDF stays on this computer. When you press play, text is sent to {engine.name} for speech, including up to six upcoming passages to keep playback flowing. {backups.length>0&&<>If {engine.name} fails, that passage is sent to {backups.map(e=>e.name).join(', then ')} as a backup. </>} Clips are kept in memory until the app closes, so passages you have already heard are not generated again.</p>
  </aside><section className="desk">
  <div className="toolbar"><div className="controls"><FileText size={18}/><strong>{name||'Your document'}</strong></div>{doc&&<div className="controls"><button aria-label="Previous page" disabled={page===1} onClick={()=>navigate(page-1)}><ChevronLeft size={18}/></button><input key={page} aria-label="Page number" className="pageinput" type="number" min={1} max={doc.numPages} defaultValue={page} onBlur={e=>{navigate(Number(e.target.value));e.target.value=String(page);}} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}/><small>of {doc.numPages}</small><button aria-label="Next page" disabled={page===doc.numPages} onClick={()=>navigate(page+1)}><ChevronRight size={18}/></button></div>}</div>
  {doc&&<div className="reader-tools"><div className="view-options" role="group" aria-label="Reading view"><button aria-pressed={view==='pdf'} onClick={()=>changeView('pdf')}><FileText size={16}/>PDF</button><button aria-pressed={view==='reader'} onClick={()=>changeView('reader')}><BookOpen size={16}/>Reading view</button></div>{view==='pdf'?<div className="controls"><button aria-label="Zoom out" disabled={zoom<=.5} onClick={()=>{clearSelection();setZoom(Math.max(.5,zoom-.25));}}><Minus size={16}/></button><button onClick={()=>{clearSelection();setZoom(1);}} title="Fit page width">{zoom===1?'Fit width':`${Math.round(zoom*100)}%`}</button><button aria-label="Zoom in" disabled={zoom>=3} onClick={()=>{clearSelection();setZoom(Math.min(3,zoom+.25));}}><Plus size={16}/></button></div>:<div className="controls"><button aria-label="Smaller text" disabled={fontSize<=18} onClick={()=>changeFont(fontSize-2)}>A−</button><span>{fontSize} px</span><button aria-label="Larger text" disabled={fontSize>=40} onClick={()=>changeFont(fontSize+2)}>A+</button></div>}</div>}

@@ -2,6 +2,14 @@
 
 Versions of the macOS app. Each entry describes what changed for readers; the README describes how the reader works today.
 
+## 1.8.0 — Speechify Simba 3.5, Gemini backup, papers read as written
+
+Speechify Simba 3.5 is the new default speech engine (key `SPEECHIFY` in `~/.env`; twelve US and UK voices, Harper first). Google Gemini 3.8 Flash TTS (key `GOOGLE_API_KEY`) is the first backup and OpenAI `gpt-4o-mini-tts` the second, so a passage that fails is read by the next engine with a key, in a voice of the same gender. ElevenLabs is retired. A speech choice saved by an earlier version is reset once so the new default applies. The macOS app queues Speechify requests under the plan's concurrency cap instead of failing over, and backups get more time for long passages.
+
+Passages are now sent to every engine in a spoken form, so the three read the same words. TeX glyphs are read out: ångströms, solar masses, kilometers per second, approximately, less than about, plus or minus, abundance ratios such as [Fe/H], Greek letters and ionisation stages (Ca ii). The inline scripts the reader already displays now steer speech too: a raised 2 after χ is "squared", raised mass numbers are isotopes (12C), and footnote and affiliation markers are no longer read as numbers. Split accents (f¨ur, Fran¸cois) are rejoined, DOIs are not read, and axis ticks, axis labels and table rows that the layout analysis leaves as text are skipped.
+
+Two layout fixes affect both views. A decimal point set in the math font on a page's last line was mistaken for a running head and dropped, so 0.16 read as 016 and 3.5 as 35. And the first line of the right column under a full-width table was absorbed into the table and disappeared; it is now part of the text, and a number range broken across columns (3800– / 4600 K) joins up again.
+
 ## 1.7.4–1.7.6 — ElevenLabs speech, automatic fallback, steadier playback
 
 ElevenLabs Flash v2.5 replaces Cartesia as the second speech engine (key `ELEVENLABS` in `~/.env`; six standard voices, American-accented Sarah by default). OpenAI remains the default, and when ElevenLabs is configured it takes over automatically if an OpenAI passage fails: OpenAI gets one attempt with a 12-second deadline, ElevenLabs one 20-second attempt, and if both fail playback stops with a retry message instead of looping. The app keeps ElevenLabs generation within two concurrent requests.

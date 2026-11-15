@@ -3,7 +3,7 @@
 ## Requirements
 
 - A Mac with Apple Silicon (M1 or later). This installer does not support Intel Macs.
-- An internet connection and an ElevenLabs and/or OpenAI API key for speech generation.
+- An internet connection and a Speechify, Google Gemini and/or OpenAI API key for speech generation.
 - No Node.js, Terminal server, or browser setup is needed to run the installed app.
 
 ## Install
@@ -24,14 +24,15 @@ If the message says the app is damaged, try copying a fresh copy from the instal
 
 ## Connect speech
 
-On this Mac, Paper Voice automatically reads the `ELEVENLABS` entry (an ElevenLabs API key) and the `OPENAI` entry from `~/.env`:
+On this Mac, Paper Voice automatically reads the `SPEECHIFY`, `GOOGLE_API_KEY` (a Gemini API key) and `OPENAI` entries from `~/.env`:
 
 ```dotenv
-ELEVENLABS=your_elevenlabs_api_key
+SPEECHIFY=your_speechify_api_key
+GOOGLE_API_KEY=your_gemini_api_key
 OPENAI=your_openai_api_key
 ```
 
-Either one is enough; choose the engine under **Speech engine** in the sidebar. OpenAI is the default; ElevenLabs Flash v2.5 is the economical backup and can also be selected directly. The keys stay on this computer and are used by the app's local server. They are not bundled in the installer. If an engine has no configured key, enter one in the app's password field for the current session. Speech usage is charged to that API account.
+Any one is enough; choose the engine under **Speech engine** in the sidebar. Speechify Simba 3.5 is the default, Gemini 3.8 Flash TTS the first backup and OpenAI `gpt-4o-mini-tts` the second; each engine with a key takes over a passage the ones before it could not read. An `ELEVENLABS` entry is no longer used. The keys stay on this computer and are used by the app's local server. They are not bundled in the installer. If an engine has no configured key, enter one in the app's password field for the current session. Speech usage is charged to that API account.
 
 ## Read a PDF
 
@@ -54,7 +55,7 @@ During playback, the current passage is highlighted. Audio buffers ahead to redu
 
 ## Troubleshooting
 
-**No speech:** Check your internet connection, the API key, and the plan's credits or billing for the selected engine. The app limits ElevenLabs generation to two concurrent requests. The app displays an error if a speech request fails.
+**No speech:** Check your internet connection, the API key, and the plan's credits or billing for the selected engine. The app queues Speechify requests to three at a time, the free plan's limit. The app displays an error if a speech request fails.
 
 **The app closes but remains in the Dock:** This is normal macOS behavior. Choose **Paper Voice → Quit Paper Voice** or press **Command-Q** to quit completely.
 
